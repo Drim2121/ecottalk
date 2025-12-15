@@ -343,20 +343,31 @@ export default function EcoTalkApp() {
     if (savedMic) setSelectedMicId(savedMic);
     if (savedSpeaker) setSelectedSpeakerId(savedSpeaker);
 
-    // Только для инициализации списков, если уже есть права
-    navigator.mediaDevices
-      .enumerateDevices()
-      .then((d) => {
-        setAudioInputs(d.filter((x) => x.kind === "audioinput"));
-        setAudioOutputs(d.filter((x) => x.kind === "audiooutput"));
-      })
-      .catch(() => {});
+    // === БЕЗОПАСНАЯ ВЕРСИЯ ===
+    
+    // Сначала проверяем, разрешил ли браузер доступ (чтобы не было белого экрана)
+    if (typeof navigator !== 'undefined' && navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+        navigator.mediaDevices
+          .enumerateDevices()
+          .then((d) => {
+            setAudioInputs(d.filter((x) => x.kind === "audioinput"));
+            setAudioOutputs(d.filter((x) => x.kind === "audiooutput"));
+          })
+          .catch(() => {});
+    } else {
+        console.log("Микрофон недоступен: Браузер заблокировал доступ из-за HTTP");
+    }
 
     socket.emit("request_voice_states");
 
     const unlock = () => {
-      const ctx = getAudioContext();
-      if (ctx && ctx.state === "suspended") ctx.resume();
+      // Здесь тоже добавим проверку на всякий случай, если getAudioContext вернет null
+      try {
+          const ctx = getAudioContext();
+          if (ctx && ctx.state === "suspended") ctx.resume();
+      } catch (e) {
+          console.log("AudioContext error", e);
+      }
       document.removeEventListener("click", unlock);
     };
     document.addEventListener("click", unlock);
