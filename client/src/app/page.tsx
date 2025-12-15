@@ -23,7 +23,7 @@ import {
   Smile,
   Edit2,
   PhoneCall,
-  Phone // Добавлено, так как используется в уведомлениях о звонке
+  Phone
 } from "lucide-react";
 import io, { Socket } from "socket.io-client";
 import Peer from "simple-peer";
@@ -928,6 +928,9 @@ export default function EcoTalkApp() {
   };
 
   const selectDM = (friend: any) => {
+    // Нельзя начать чат с самим собой
+    if (friend.id === currentUser?.id) return;
+
     setActiveServerId(null);
     if (activeVoiceChannel) leaveVoiceChannel();
 
@@ -1045,8 +1048,8 @@ export default function EcoTalkApp() {
                  ) : (
                      <>
                         <div className="flex flex-col">
-                            <span>{activeDM?.username || 'Select Friend'}</span>
-                            {activeDM && (<span className={`text-[10px] font-normal ${activeFriendData?.status==='online'?'text-green-600':'text-gray-400'}`}>{activeFriendData?.status==='online'?'Online':`Last seen: ${formatLastSeen(activeFriendData?.lastSeen)}`}</span>)}
+                           <span>{activeDM?.username || 'Select Friend'}</span>
+                           {activeDM && (<span className={`text-[10px] font-normal ${activeFriendData?.status==='online'?'text-green-600':'text-gray-400'}`}>{activeFriendData?.status==='online'?'Online':`Last seen: ${formatLastSeen(activeFriendData?.lastSeen)}`}</span>)}
                         </div>
                      </>
                  )}
@@ -1128,9 +1131,13 @@ export default function EcoTalkApp() {
           <div className="w-60 bg-eco-50 border-l border-eco-200 p-3 hidden lg:block overflow-y-auto">
             <h3 className="text-xs font-bold text-gray-500 mb-2">MEMBERS — {currentServerMembers.length}</h3>
             {currentServerMembers.map(member => (
-              <div key={member.id} className="flex items-center justify-between group p-2 hover:bg-eco-100 rounded cursor-pointer">
+              <div 
+                  key={member.id} 
+                  className="flex items-center justify-between group p-2 hover:bg-eco-100 rounded cursor-pointer"
+                  onClick={() => selectDM(member)}
+              >
                  <div className="flex items-center gap-2"><div className="relative w-8 h-8 flex-shrink-0"><img src={member.avatar} className="rounded-full w-full h-full object-cover"/><div className={`absolute bottom-0 right-0 w-2.5 h-2.5 border-2 border-white rounded-full ${member.status==='online'?'bg-green-500':'bg-gray-400'}`}></div></div><div className="flex flex-col"><span className={`font-medium text-sm leading-tight ${member.id === activeServerData?.ownerId ? 'text-yellow-600' : 'text-gray-700'}`}>{member.username}</span>{member.status !== 'online' && <span className="text-[10px] text-gray-400 leading-tight">{formatLastSeen(member.lastSeen)}</span>}</div></div>
-                 {activeServerData?.ownerId === currentUser.id && member.id !== currentUser.id && <UserMinus size={16} className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100" onClick={()=>kickMember(member.id)}/>}
+                 {activeServerData?.ownerId === currentUser.id && member.id !== currentUser.id && <UserMinus size={16} className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100" onClick={(e)=>{ e.stopPropagation(); kickMember(member.id); }}/>}
               </div>
             ))}
           </div>
