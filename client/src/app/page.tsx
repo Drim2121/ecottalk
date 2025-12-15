@@ -1119,7 +1119,7 @@ export default function EcoTalkApp() {
             {currentServerMembers.map(member => (
               <div key={member.id} className="flex items-center justify-between group p-2 hover:bg-eco-100 rounded cursor-pointer">
                  <div className="flex items-center gap-2"><div className="relative w-8 h-8 flex-shrink-0"><img src={member.avatar} className="rounded-full w-full h-full object-cover"/><div className={`absolute bottom-0 right-0 w-2.5 h-2.5 border-2 border-white rounded-full ${member.status==='online'?'bg-green-500':'bg-gray-400'}`}></div></div><div className="flex flex-col"><span className={`font-medium text-sm leading-tight ${member.id === activeServerData?.ownerId ? 'text-yellow-600' : 'text-gray-700'}`}>{member.username}</span>{member.status !== 'online' && <span className="text-[10px] text-gray-400 leading-tight">{formatLastSeen(member.lastSeen)}</span>}</div></div>
-                 {activeServerData?.ownerId === currentUser.id && member.id !== currentUser.id && <UserMinus size={16} className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100" onClick={()=>kickMember(member.id)} title="Kick"/>}
+                 {activeServerData?.ownerId === currentUser.id && member.id !== currentUser.id && <UserMinus size={16} className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100" onClick={()=>kickMember(member.id)}/>}
               </div>
             ))}
           </div>
