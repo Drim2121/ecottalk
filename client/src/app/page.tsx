@@ -243,7 +243,7 @@ export default function EcoTalkApp() {
   const [activeChannel, setActiveChannel] = useState<any>(null);
   
   const [activeDM, setActiveDM] = useState<any>(null);
-  // ===== ИСПРАВЛЕНИЕ: Ref для отслеживания активного DM внутри socket событий =====
+  // (ВАЖНО) Ref для отслеживания активного DM внутри socket событий
   const activeDMRef = useRef<any>(null); 
 
   const [showNotifPanel, setShowNotifPanel] = useState(false);
@@ -332,7 +332,7 @@ export default function EcoTalkApp() {
     currentUserRef.current = currentUser;
   }, [currentUser]);
 
-  // ===== ИСПРАВЛЕНИЕ: Синхронизация activeDMRef =====
+  // (ВАЖНО) Синхронизация activeDMRef
   useEffect(() => {
     activeDMRef.current = activeDM;
   }, [activeDM]);
@@ -387,43 +387,55 @@ export default function EcoTalkApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ===== socket listeners =====
+  // ===== socket listeners (ГЛАВНОЕ ИСПРАВЛЕНИЕ) =====
   useEffect(() => {
-    // ===== ИСПРАВЛЕНИЕ: Обновляем список друзей при получении сообщения =====
     const onReceiveMessage = (msg: any) => {
-        // 1. Обновляем текущий чат
-        setMessages((p) => [...p, msg]);
+      // 1. Всегда добавляем сообщение в чат
+      setMessages((p) => [...p, msg]);
 
-        // 2. Обновляем список друзей слева (поднимаем активного наверх)
-        setMyFriends((prev) => {
-            const currentUserId = currentUserRef.current?.id;
-            let friendIdToUpdate: number | null = null;
+      // 2. Обновляем левую панель (список друзей/чатов)
+      setMyFriends((prev) => {
+        const currentUserId = currentUserRef.current?.id;
+        
+        let partnerId: number | null = null;
+        let partnerData: any = null;
 
-            // Если сообщение от меня — берем ID того, кому я пишу (из Ref)
-            if (msg.userId === currentUserId) {
-                friendIdToUpdate = activeDMRef.current?.id;
-            } 
-            // Если сообщение от друга — берем его ID из сообщения
-            else {
-                friendIdToUpdate = msg.userId;
-            }
+        // Если я отправил сообщение
+        if (msg.userId === currentUserId) {
+          // Партнер — это тот, чей DM у меня сейчас открыт
+          partnerId = activeDMRef.current?.id;
+          partnerData = activeDMRef.current; 
+        } 
+        // Если я получил сообщение
+        else {
+          partnerId = msg.userId;
+          // Пытаемся сформировать объект пользователя из сообщения
+          partnerData = msg.user || { 
+            id: msg.userId, 
+            username: msg.author, 
+            avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${msg.userId}`,
+            status: 'online'
+          };
+        }
 
-            if (!friendIdToUpdate) return prev;
+        // Если партнера нет (странная ошибка), ничего не делаем
+        if (!partnerId) return prev;
 
-            const index = prev.findIndex((f) => f.id === friendIdToUpdate);
-            
-            // Если друг найден в списке
-            if (index > -1) {
-                const newFriends = [...prev];
-                const [friend] = newFriends.splice(index, 1);
-                
-                // (Опционально) Можно добавить friend.lastMessage = msg.content; для превью
-                
-                return [friend, ...newFriends]; // Ставим его в начало массива
-            }
-            
-            return prev;
-        });
+        // Проверяем, есть ли он уже в списке
+        const existingIndex = prev.findIndex((f) => f.id === partnerId);
+        
+        // Удаляем старую запись (если была), чтобы добавить новую наверх
+        const filtered = prev.filter(f => f.id !== partnerId);
+        
+        // Если запись была, используем её. Если нет — используем partnerData
+        let friendObj = existingIndex > -1 ? prev[existingIndex] : partnerData;
+        
+        // Если даже partnerData пуст (например при перезагрузке), лучше вернуть старый список
+        if (!friendObj) return prev;
+
+        // Возвращаем новый список: [ТотКтоНаписал, ...Остальные]
+        return [friendObj, ...filtered];
+      });
     };
 
     const onLoadHistory = (h: any[]) => setMessages(h);
@@ -431,7 +443,6 @@ export default function EcoTalkApp() {
 
     const onFriendAdded = (f: any) => {
       setMyFriends((p) => (p.find((x) => x.id === f.id) ? p : [...p, f]));
-      // Обновляем данные, чтобы применились изменения
       if (tokenRef.current) fetchUserData(tokenRef.current);
     };
 
