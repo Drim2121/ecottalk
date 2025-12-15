@@ -241,7 +241,11 @@ export default function EcoTalkApp() {
   const [activeServerId, setActiveServerId] = useState<number | null>(null);
   const [activeServerData, setActiveServerData] = useState<any>(null);
   const [activeChannel, setActiveChannel] = useState<any>(null);
+  
   const [activeDM, setActiveDM] = useState<any>(null);
+  // ===== ИСПРАВЛЕНИЕ: Ref для отслеживания активного DM внутри socket событий =====
+  const activeDMRef = useRef<any>(null); 
+
   const [showNotifPanel, setShowNotifPanel] = useState(false);
   const [showMembersPanel, setShowMembersPanel] = useState(true);
 
@@ -328,6 +332,11 @@ export default function EcoTalkApp() {
     currentUserRef.current = currentUser;
   }, [currentUser]);
 
+  // ===== ИСПРАВЛЕНИЕ: Синхронизация activeDMRef =====
+  useEffect(() => {
+    activeDMRef.current = activeDM;
+  }, [activeDM]);
+
   // ===== init =====
   useEffect(() => {
     setMounted(true);
@@ -380,7 +389,43 @@ export default function EcoTalkApp() {
 
   // ===== socket listeners =====
   useEffect(() => {
-    const onReceiveMessage = (msg: any) => setMessages((p) => [...p, msg]);
+    // ===== ИСПРАВЛЕНИЕ: Обновляем список друзей при получении сообщения =====
+    const onReceiveMessage = (msg: any) => {
+        // 1. Обновляем текущий чат
+        setMessages((p) => [...p, msg]);
+
+        // 2. Обновляем список друзей слева (поднимаем активного наверх)
+        setMyFriends((prev) => {
+            const currentUserId = currentUserRef.current?.id;
+            let friendIdToUpdate: number | null = null;
+
+            // Если сообщение от меня — берем ID того, кому я пишу (из Ref)
+            if (msg.userId === currentUserId) {
+                friendIdToUpdate = activeDMRef.current?.id;
+            } 
+            // Если сообщение от друга — берем его ID из сообщения
+            else {
+                friendIdToUpdate = msg.userId;
+            }
+
+            if (!friendIdToUpdate) return prev;
+
+            const index = prev.findIndex((f) => f.id === friendIdToUpdate);
+            
+            // Если друг найден в списке
+            if (index > -1) {
+                const newFriends = [...prev];
+                const [friend] = newFriends.splice(index, 1);
+                
+                // (Опционально) Можно добавить friend.lastMessage = msg.content; для превью
+                
+                return [friend, ...newFriends]; // Ставим его в начало массива
+            }
+            
+            return prev;
+        });
+    };
+
     const onLoadHistory = (h: any[]) => setMessages(h);
     const onNewNotif = (n: any) => setNotifications((p) => [n, ...p]);
 
