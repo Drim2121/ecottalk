@@ -29,7 +29,7 @@ import io, { Socket } from "socket.io-client";
 import Peer from "simple-peer";
 
 // ===== CONSTANTS =====
-const SOCKET_URL = "http://localhost:3001"; // <--- ВОТ ЭТОЙ СТРОКИ НЕ ХВАТАЛО
+const SOCKET_URL = "const SOCKET_URL = "http://5.129.215.82:3001";"; // <--- ВОТ ЭТОЙ СТРОКИ НЕ ХВАТАЛО
 
 // ===== SOCKET SINGLETON =====
 let _socket: Socket | null = null;
