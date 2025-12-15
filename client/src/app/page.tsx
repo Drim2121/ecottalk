@@ -1048,7 +1048,7 @@ export default function EcoTalkApp() {
           {activeChannel?.type === 'voice' ? (
              <div className="flex-1 bg-gray-900 p-4 flex flex-col relative">
                 <div className="flex-1 grid grid-cols-2 md:grid-cols-3 gap-4 auto-rows-max">
-                  <AudioAvatar stream={myStream} isLocal={true} />
+                  <AudioAvatar stream={myStream} isLocal={true} userId="me" />
                    {peers.map(p => (
                       <GroupPeerWrapper key={p.peerID} peer={p.peer} peerID={p.peerID} outputDeviceId={selectedSpeakerId} allUsers={voiceStates[activeChannel.id] || []}/>
                    ))}
