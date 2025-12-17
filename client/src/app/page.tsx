@@ -5,7 +5,8 @@ import {
   Hash, Send, Plus, MessageSquare, LogOut, Paperclip, UserPlus, PhoneOff, Bell,
   Check, X, Settings, Trash2, UserMinus, Users, Volume2, Mic, MicOff, Smile, Edit2,
   Palette, Zap, ZapOff, Video, VideoOff, Monitor, MonitorOff, Volume1, VolumeX, Camera,
-  Maximize, Minimize, Keyboard, Sliders, Volume, Headphones, HeadphoneOff, WifiOff, UploadCloud
+  Maximize, Minimize, Keyboard, Sliders, Volume, Headphones, HeadphoneOff, WifiOff, 
+  UploadCloud, ShoppingBag, Coins, Gift
 } from "lucide-react";
 import io, { Socket } from "socket.io-client";
 import Peer from "simple-peer";
@@ -13,12 +14,24 @@ import Peer from "simple-peer";
 // ===== CONSTANTS =====
 const SOCKET_URL = "http://5.129.215.82:3001";
 
+// ===== SHOP ITEMS =====
+const SHOP_ITEMS = [
+  { id: 'color_gold', type: 'color', name: 'Golden Name', price: 200, value: '#FFD700' },
+  { id: 'color_neon', type: 'color', name: 'Neon Blue', price: 150, value: '#00FFFF' },
+  { id: 'color_rose', type: 'color', name: 'Rose Pink', price: 150, value: '#FF007F' },
+  { id: 'color_lime', type: 'color', name: 'Toxic Lime', price: 150, value: '#39FF14' },
+  { id: 'frame_fire', type: 'frame', name: 'Fire Aura', price: 500, css: 'box-shadow: 0 0 15px 2px #FF4500, inset 0 0 10px #FFD700;' },
+  { id: 'frame_ice', type: 'frame', name: 'Ice Frozen', price: 500, css: 'box-shadow: 0 0 15px 2px #00BFFF, inset 0 0 10px #E0FFFF;' },
+  { id: 'frame_nature', type: 'frame', name: 'Eco Leaves', price: 300, css: 'border: 3px solid #32CD32; box-shadow: 0 0 10px #228B22;' },
+];
+
 // ===== SOUNDS (Base64) =====
 const SOUNDS = {
   msg: "data:audio/mpeg;base64,//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
   join: "data:audio/mp3;base64,//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
   leave: "data:audio/mp3;base64,//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
-  click: "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=" 
+  click: "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=",
+  cash: "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=" // Placeholder for cash sound
 };
 
 // ===== THEMES =====
@@ -31,6 +44,10 @@ const THEME_STYLES = `
   input[type=range] { -webkit-appearance: none; background: transparent; }
   input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 14px; width: 14px; border-radius: 50%; background: white; cursor: pointer; margin-top: -5px; box-shadow: 0 0 2px rgba(0,0,0,0.5); }
   input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; cursor: pointer; background: rgba(255,255,255,0.3); border-radius: 2px; }
+  
+  /* Custom Scrollbar for Shop */
+  .shop-grid::-webkit-scrollbar { width: 6px; }
+  .shop-grid::-webkit-scrollbar-thumb { background-color: rgba(255,255,255,0.2); border-radius: 3px; }
 `;
 
 let _socket: Socket | null = null;
@@ -41,7 +58,7 @@ const peerConfig = { iceServers: [ { urls: "stun:stun.l.google.com:19302" }, { u
 let globalAudioContext: AudioContext | null = null;
 const getAudioContext = () => { if (!globalAudioContext) { const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext; if (AudioContextClass) globalAudioContext = new AudioContextClass(); } return globalAudioContext; };
 
-const playSoundEffect = (type: 'msg' | 'join' | 'leave' | 'click') => {
+const playSoundEffect = (type: 'msg' | 'join' | 'leave' | 'click' | 'cash') => {
   const ctx = getAudioContext();
   if (!ctx) return;
   if (ctx.state === 'suspended') ctx.resume().catch(() => {});
@@ -53,6 +70,16 @@ const playSoundEffect = (type: 'msg' | 'join' | 'leave' | 'click') => {
     gain.gain.setValueAtTime(0.05, ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05);
     osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.05);
+  } else if (type === 'cash') {
+    // Coin sound
+    const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.setValueAtTime(1200, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(1800, ctx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.1, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+    osc.type = 'triangle';
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.4);
   } else {
     const osc = ctx.createOscillator(); const gain = ctx.createGain();
     osc.connect(gain); gain.connect(ctx.destination);
@@ -167,7 +194,7 @@ const useProcessedStream = (rawStream: MediaStream | null, threshold: number, is
 };
 
 // --- COMPONENTS ---
-const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, username, outputDeviceId, isScreenShare, globalDeaf, remoteMuted, miniMode }: { stream: MediaStream | null; isLocal: boolean; userId: string; userAvatar?: string; username?: string; outputDeviceId?: string; isScreenShare?: boolean; globalDeaf?: boolean; remoteMuted?: boolean; miniMode?: boolean }) => {
+const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, username, outputDeviceId, isScreenShare, globalDeaf, remoteMuted, miniMode, userCustom }: { stream: MediaStream | null; isLocal: boolean; userId: string; userAvatar?: string; username?: string; outputDeviceId?: string; isScreenShare?: boolean; globalDeaf?: boolean; remoteMuted?: boolean; miniMode?: boolean; userCustom?: any }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const isSpeaking = useStreamAnalyzer(stream); 
@@ -213,17 +240,29 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
   const shouldMuteVideoElement = isLocal || (globalDeaf === true);
   const avatarSize = miniMode ? "w-8 h-8" : "w-24 h-24";
 
+  // CUSTOMIZATION STYLES
+  const frameStyle = userCustom?.frame ? SHOP_ITEMS.find(i => i.id === userCustom.frame)?.css : '';
+  const nameColor = userCustom?.color ? SHOP_ITEMS.find(i => i.id === userCustom.color)?.value : null;
+
   return (
     <div ref={containerRef} className={containerClass}>
       <video ref={videoRef} autoPlay playsInline muted={shouldMuteVideoElement} className={`absolute inset-0 w-full h-full ${objectFitClass} transition-all duration-300 ${hasVideo ? 'opacity-100' : 'opacity-0'} ${isLocal && !isScreenShare ? 'scale-x-[-1]' : ''}`} />
       {!hasVideo && (
         <div className="z-10 flex flex-col items-center">
-            <div className={`relative ${avatarSize} rounded-full p-1 transition-all duration-150 ${isSpeaking && !remoteMuted ? "bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.6)] scale-105" : "bg-gray-700"}`}>
+            {/* AVATAR WITH CUSTOM FRAME */}
+            <div 
+                className={`relative ${avatarSize} rounded-full p-1 transition-all duration-150 ${isSpeaking && !remoteMuted ? "scale-105" : ""}`}
+                style={frameStyle ? {
+                    cssText: frameStyle
+                } : {
+                    boxShadow: isSpeaking && !remoteMuted ? "0 0 15px rgba(34,197,94,0.6)" : "none",
+                    border: isSpeaking && !remoteMuted ? "2px solid #22c55e" : "none"
+                }}
+            >
                 <img src={userAvatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userId}`} className="w-full h-full rounded-full object-cover border-2 border-gray-900" alt="avatar"/>
             </div>
         </div>
       )}
-      {hasVideo && isSpeaking && !remoteMuted && (<div className="absolute inset-0 border-4 border-green-500 rounded-xl z-20 pointer-events-none opacity-50"></div>)}
       
       {/* SHOW MUTE ICON IF REMOTE SAYS SO */}
       {remoteMuted && (<div className={`absolute top-2 right-2 bg-red-600 ${miniMode ? 'p-1' : 'p-2'} rounded-full shadow-lg z-20`}><MicOff size={miniMode ? 10 : 16} className="text-white" /></div>)}
@@ -231,8 +270,8 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
       {!isLocal && !miniMode && (<div className="absolute bottom-12 left-1/2 -translate-x-1/2 w-3/4 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 px-3 py-1 rounded-full flex items-center gap-2 z-30"><Volume size={14} className="text-gray-300"/><input type="range" min="0" max="1" step="0.05" value={volume} onChange={e=>setVolume(Number(e.target.value))} className="w-full"/></div>)}
       {!miniMode && <button onClick={toggleFullscreen} className="absolute bottom-10 right-4 p-2 bg-black/50 hover:bg-black/80 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity z-20">{isFullscreen ? <Minimize size={20}/> : <Maximize size={20}/>}</button>}
       
-      {/* Name Tag */}
-      {!miniMode && <div className={`absolute bottom-4 left-4 z-20 text-white font-bold text-sm bg-black/60 px-3 py-1 rounded backdrop-blur-sm flex items-center gap-1 ${isFullscreen ? 'scale-125 origin-bottom-left' : ''}`}>{username || "Guest"} {isLocal && "(You)"}</div>}
+      {/* Name Tag with Custom Color */}
+      {!miniMode && <div className={`absolute bottom-4 left-4 z-20 font-bold text-sm bg-black/60 px-3 py-1 rounded backdrop-blur-sm flex items-center gap-1 ${isFullscreen ? 'scale-125 origin-bottom-left' : ''}`} style={{ color: nameColor || 'white' }}>{username || "Guest"} {isLocal && "(You)"}</div>}
     </div>
   );
 });
@@ -242,16 +281,20 @@ UserMediaComponent.displayName = "UserMediaComponent";
 const GroupPeerWrapper = ({ peer, peerID, outputDeviceId, allUsers, globalDeaf, miniMode }: { peer: Peer.Instance; peerID: string; outputDeviceId?: string; allUsers: any[]; globalDeaf: boolean; miniMode?: boolean }) => {
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [remoteMuted, setRemoteMuted] = useState(false);
+  const [remoteCustom, setRemoteCustom] = useState<any>(null); // Remote user's customization
 
   useEffect(() => { 
       const onStream = (s: MediaStream) => setStream(s); 
-      // Listen for DATA (Mute signals)
+      // Listen for DATA (Mute signals AND Customization)
       const onData = (data: any) => {
           try {
               const str = new TextDecoder("utf-8").decode(data);
               const json = JSON.parse(str);
               if (json.type === 'mute-status') {
                   setRemoteMuted(json.isMuted);
+              }
+              if (json.type === 'user-custom') {
+                  setRemoteCustom(json.custom);
               }
           } catch(e) { console.log("Data channel error", e); }
       };
@@ -268,7 +311,9 @@ const GroupPeerWrapper = ({ peer, peerID, outputDeviceId, allUsers, globalDeaf, 
   }, [peer]);
 
   const u = allUsers.find((x: any) => x.socketId === peerID);
-  return <UserMediaComponent stream={stream} isLocal={false} userId={peerID} userAvatar={u?.avatar} username={u?.username || "Connecting..."} outputDeviceId={outputDeviceId} isScreenShare={false} globalDeaf={globalDeaf} remoteMuted={remoteMuted} miniMode={miniMode}/>;
+  
+  // Use remote custom data if available via P2P, otherwise fallback (future backend integration)
+  return <UserMediaComponent stream={stream} isLocal={false} userId={peerID} userAvatar={u?.avatar} username={u?.username || "Connecting..."} outputDeviceId={outputDeviceId} isScreenShare={false} globalDeaf={globalDeaf} remoteMuted={remoteMuted} miniMode={miniMode} userCustom={remoteCustom}/>;
 };
 
 // ============================ APP ============================
@@ -345,13 +390,21 @@ export default function EcoTalkApp() {
   const lastTypingTime = useRef<number>(0);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // === DND & CONNECTION & LIGHTBOX STATUS ===
+  // === DND & CONNECTION & LIGHTBOX & SHOP STATUS ===
   const [isDragging, setIsDragging] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
-  const [viewingImage, setViewingImage] = useState<string | null>(null); // State for lightbox
+  const [viewingImage, setViewingImage] = useState<string | null>(null);
+  
+  // --- SHOP STATE ---
+  const [showShop, setShowShop] = useState(false);
+  const [ecoCoins, setEcoCoins] = useState(0);
+  const [myInventory, setMyInventory] = useState<string[]>([]);
+  const [myCustomization, setMyCustomization] = useState<{frame?: string, color?: string}>({});
+  const [dailyClaimed, setDailyClaimed] = useState(false);
+  const [showDailyModal, setShowDailyModal] = useState(false);
 
   useEffect(() => { const savedTheme = localStorage.getItem("eco_theme"); if (savedTheme) { setTheme(savedTheme); document.documentElement.setAttribute('data-theme', savedTheme); } }, []);
-  const playSound = (type: 'msg' | 'join' | 'leave' | 'click') => { if (soundEnabled) playSoundEffect(type); };
+  const playSound = (type: 'msg' | 'join' | 'leave' | 'click' | 'cash') => { if (soundEnabled) playSoundEffect(type); };
   const formatLastSeen = (d: string) => { if (!d) return "Offline"; const diff = Math.floor((Date.now() - new Date(d).getTime()) / 60000); if (diff < 1) return "Just now"; if (diff < 60) return `${diff}m ago`; const hours = Math.floor(diff / 60); return hours < 24 ? `${hours}h ago` : new Date(d).toLocaleDateString(); };
   const formatDateHeader = (d: string) => { const date = new Date(d); const now = new Date(); const yesterday = new Date(); yesterday.setDate(now.getDate() - 1); if (date.toDateString() === now.toDateString()) return "Today"; if (date.toDateString() === yesterday.toDateString()) return "Yesterday"; return date.toLocaleDateString(); };
 
@@ -360,6 +413,67 @@ export default function EcoTalkApp() {
   useEffect(() => { activeDMRef.current = activeDM; }, [activeDM]);
   useEffect(() => { document.documentElement.setAttribute('data-theme', theme); localStorage.setItem('eco_theme', theme); }, [theme]);
   
+  // === LOAD SHOP DATA (SIMULATED LOCAL PERSISTENCE) ===
+  useEffect(() => {
+    if (!token) return;
+    // In a real app, you'd fetch this from API. Here we simulate local storage for demo.
+    const savedCoins = localStorage.getItem('eco_coins');
+    const savedInv = localStorage.getItem('eco_inventory');
+    const savedCustom = localStorage.getItem('eco_customization');
+    const lastLogin = localStorage.getItem('eco_last_login');
+
+    if (savedCoins) setEcoCoins(Number(savedCoins));
+    if (savedInv) setMyInventory(JSON.parse(savedInv));
+    if (savedCustom) setMyCustomization(JSON.parse(savedCustom));
+
+    // Daily Bonus Logic
+    const today = new Date().toDateString();
+    if (lastLogin !== today) {
+        setShowDailyModal(true);
+    } else {
+        setDailyClaimed(true);
+    }
+  }, [token]);
+
+  const claimDailyBonus = () => {
+      const newBalance = ecoCoins + 100;
+      setEcoCoins(newBalance);
+      localStorage.setItem('eco_coins', String(newBalance));
+      localStorage.setItem('eco_last_login', new Date().toDateString());
+      setDailyClaimed(true);
+      setShowDailyModal(false);
+      playSound('cash');
+  };
+
+  const buyItem = (item: any) => {
+      if (ecoCoins >= item.price) {
+          if (myInventory.includes(item.id)) return; // Already owned
+          const newBalance = ecoCoins - item.price;
+          const newInv = [...myInventory, item.id];
+          setEcoCoins(newBalance);
+          setMyInventory(newInv);
+          localStorage.setItem('eco_coins', String(newBalance));
+          localStorage.setItem('eco_inventory', JSON.stringify(newInv));
+          playSound('cash');
+      } else {
+          alert("Not enough EcoCoins!");
+      }
+  };
+
+  const toggleEquip = (item: any) => {
+      const newCustom = { ...myCustomization };
+      if (item.type === 'frame') {
+          newCustom.frame = newCustom.frame === item.id ? undefined : item.id;
+      } else {
+          newCustom.color = newCustom.color === item.id ? undefined : item.id;
+      }
+      setMyCustomization(newCustom);
+      localStorage.setItem('eco_customization', JSON.stringify(newCustom));
+      playSound('click');
+      // Broadcast new style immediately if connected
+      broadcastCustomization(newCustom);
+  };
+
   // === NETWORK STATUS ===
   useEffect(() => {
     const handleOffline = () => setIsOffline(true);
@@ -382,6 +496,16 @@ export default function EcoTalkApp() {
     window.addEventListener('keydown', handleEsc);
     return () => window.removeEventListener('keydown', handleEsc);
   }, [viewingImage]);
+
+  // === BROADCAST CUSTOMIZATION VIA DATA CHANNEL ===
+  const broadcastCustomization = (custom: any) => {
+      const msg = JSON.stringify({ type: 'user-custom', custom });
+      peersRef.current.forEach(p => {
+          if (p.peer && !p.peer.destroyed) {
+              try { p.peer.send(msg); } catch(e) {}
+          }
+      });
+  }
 
   // === BROADCAST MUTE STATE VIA DATA CHANNEL ===
   const broadcastMuteState = (muted: boolean) => {
@@ -420,7 +544,8 @@ export default function EcoTalkApp() {
                 content: null, imageUrl: reader.result, type: "image", 
                 author: currentUser.username, userId: currentUser.id, 
                 channelId: activeServerId ? activeChannel?.id : null, 
-                dmRoom: activeDM ? `dm_${[currentUser.id, activeDM.id].sort().join("_")}` : null 
+                dmRoom: activeDM ? `dm_${[currentUser.id, activeDM.id].sort().join("_")}` : null,
+                userCustom: myCustomization // Send styles with message
             });
         };
         reader.readAsDataURL(file);
@@ -445,6 +570,7 @@ export default function EcoTalkApp() {
                            userId: currentUser.id,
                            channelId: activeServerId ? activeChannel?.id : null,
                            dmRoom: activeDM ? `dm_${[currentUser.id, activeDM.id].sort().join("_")}` : null,
+                           userCustom: myCustomization
                        });
                    };
                    reader.readAsDataURL(file);
@@ -515,18 +641,24 @@ export default function EcoTalkApp() {
   function createPeer(userToSignal: string, callerID: string, stream: MediaStream, s: Socket) { 
       const peer = new Peer({ initiator: true, trickle: false, stream, config: peerConfig }); 
       peer.on("signal", (signal) => { s.emit("sending_signal", { userToSignal, callerID, signal }); }); 
-      // Send initial mute state when connected
+      // Send initial state when connected
       peer.on("connect", () => {
-          try { peer.send(JSON.stringify({ type: 'mute-status', isMuted: isMuted })); } catch(e){}
+          try { 
+              peer.send(JSON.stringify({ type: 'mute-status', isMuted: isMuted })); 
+              peer.send(JSON.stringify({ type: 'user-custom', custom: myCustomization })); 
+          } catch(e){}
       });
       return peer; 
   }
   function addPeer(incomingSignal: any, callerID: string, stream: MediaStream, s: Socket) { 
       const peer = new Peer({ initiator: false, trickle: false, stream, config: peerConfig }); 
       peer.on("signal", (signal) => { s.emit("returning_signal", { signal, callerID }); }); 
-      // Send initial mute state when connected
+      // Send initial state when connected
       peer.on("connect", () => {
-          try { peer.send(JSON.stringify({ type: 'mute-status', isMuted: isMuted })); } catch(e){}
+          try { 
+              peer.send(JSON.stringify({ type: 'mute-status', isMuted: isMuted }));
+              peer.send(JSON.stringify({ type: 'user-custom', custom: myCustomization }));
+          } catch(e){}
       });
       peer.signal(incomingSignal); 
       return peer; 
@@ -630,8 +762,8 @@ export default function EcoTalkApp() {
   };
 
   const selectDM = (friend: any) => { if (friend.id === currentUser?.id) return; setActiveServerId(null); if (activeVoiceChannel) leaveVoiceChannel(); setActiveDM(friend); setActiveChannel(null); setMessages([]); const me = currentUser; if (!me) return; const ids = [me.id, friend.id].sort(); socket.emit("join_dm", { roomName: `dm_${ids[0]}_${ids[1]}` }); playSound("click"); };
-  const sendMessage = () => { const me = currentUser; if (!me || !inputText) return; socket.emit("send_message", { content: inputText, author: me.username, userId: me.id, channelId: activeServerId ? activeChannel?.id : null, dmRoom: activeDM ? `dm_${[me.id, activeDM.id].sort().join("_")}` : null, }); setInputText(""); const room = activeServerId ? `channel_${activeChannel?.id}` : activeDM ? `dm_${[me.id, activeDM.id].sort().join("_")}` : null; if (room) socket.emit("stop_typing", { room }); };
-  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onloadend = () => socket.emit("send_message", { content: null, imageUrl: reader.result, type: "image", author: currentUser.username, userId: currentUser.id, channelId: activeServerId ? activeChannel?.id : null, dmRoom: activeDM ? `dm_${[currentUser.id, activeDM.id].sort().join("_")}` : null, }); reader.readAsDataURL(file); };
+  const sendMessage = () => { const me = currentUser; if (!me || !inputText) return; socket.emit("send_message", { content: inputText, author: me.username, userId: me.id, channelId: activeServerId ? activeChannel?.id : null, dmRoom: activeDM ? `dm_${[me.id, activeDM.id].sort().join("_")}` : null, userCustom: myCustomization }); setInputText(""); const room = activeServerId ? `channel_${activeChannel?.id}` : activeDM ? `dm_${[me.id, activeDM.id].sort().join("_")}` : null; if (room) socket.emit("stop_typing", { room }); };
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onloadend = () => socket.emit("send_message", { content: null, imageUrl: reader.result, type: "image", author: currentUser.username, userId: currentUser.id, channelId: activeServerId ? activeChannel?.id : null, dmRoom: activeDM ? `dm_${[currentUser.id, activeDM.id].sort().join("_")}` : null, userCustom: myCustomization }); reader.readAsDataURL(file); };
   const startEditing = (msg: any) => { setEditingMessageId(msg.id); setEditInputText(msg.content); };
   const submitEdit = async (msgId: number) => { if(!editInputText.trim()) return; await fetch(`${SOCKET_URL}/api/messages/${msgId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': token! }, body: JSON.stringify({ content: editInputText }) }); setEditingMessageId(null); };
   const deleteMessage = async (msgId: number) => { if(!confirm("Delete?")) return; await fetch(`${SOCKET_URL}/api/messages/${msgId}`, { method: 'DELETE', headers: { 'Authorization': token! } }); };
@@ -666,7 +798,7 @@ export default function EcoTalkApp() {
 
       <div className={`flex w-full h-full`}>
         {/* SIDEBAR */}
-        <div className="w-18 bg-gray-900 flex flex-col items-center py-4 space-y-3 z-20 text-white"><div onClick={() => setActiveServerId(null)} className={`w-12 h-12 rounded-2xl flex items-center justify-center cursor-pointer ${activeServerId===null ? 'bg-indigo-500 text-white' : 'bg-gray-700 text-gray-200 hover:bg-green-600'}`}><MessageSquare size={24}/></div><div className="w-8 h-0.5 bg-gray-700 rounded"></div>{myServers.map(s => <div key={s.id} onClick={() => selectServer(s.id)} className={`w-12 h-12 rounded-full flex items-center justify-center cursor-pointer font-bold overflow-hidden ${activeServerId===s.id ? 'rounded-xl bg-green-500 text-white' : 'bg-gray-700 text-gray-200'}`} title={s.name}>{s.icon && s.icon.startsWith('data:') ? <img src={s.icon} className="w-full h-full object-cover"/> : s.name[0]}</div>)}<div onClick={() => setShowCreateServer(true)} className="w-12 h-12 bg-gray-800 rounded-full flex items-center justify-center text-green-400 cursor-pointer"><Plus size={24}/></div></div>
+        <div className="w-18 bg-gray-900 flex flex-col items-center py-4 space-y-3 z-20 text-white"><div onClick={() => setActiveServerId(null)} className={`w-12 h-12 rounded-2xl flex items-center justify-center cursor-pointer ${activeServerId===null ? 'bg-indigo-500 text-white' : 'bg-gray-700 text-gray-200 hover:bg-green-600'}`}><MessageSquare size={24}/></div><div className="w-8 h-0.5 bg-gray-700 rounded"></div>{myServers.map(s => <div key={s.id} onClick={() => selectServer(s.id)} className={`w-12 h-12 rounded-full flex items-center justify-center cursor-pointer font-bold overflow-hidden ${activeServerId===s.id ? 'rounded-xl bg-green-500 text-white' : 'bg-gray-700 text-gray-200'}`} title={s.name}>{s.icon && s.icon.startsWith('data:') ? <img src={s.icon} className="w-full h-full object-cover"/> : s.name[0]}</div>)}<div onClick={() => setShowCreateServer(true)} className="w-12 h-12 bg-gray-800 rounded-full flex items-center justify-center text-green-400 cursor-pointer"><Plus size={24}/></div><div onClick={() => setShowShop(true)} className="w-12 h-12 bg-gray-800 rounded-full flex items-center justify-center text-yellow-400 cursor-pointer hover:bg-yellow-600/20"><ShoppingBag size={24}/></div></div>
         
         {/* CHANNEL LIST */}
         <div className="w-60 bg-[var(--bg-secondary)] border-r border-[var(--border)] flex flex-col transition-colors relative">
@@ -727,7 +859,7 @@ export default function EcoTalkApp() {
           
           {/* VOICE VIEW */}
           {isVoiceActiveView ? (
-             <div className="flex-1 bg-gray-900 p-4 flex flex-col relative"><div className="flex-1 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 auto-rows-fr h-full overflow-y-auto"><UserMediaComponent stream={isMuted ? null : processedStream} isLocal={true} userId="me" userAvatar={currentUser?.avatar} username={currentUser?.username} isScreenShare={isScreenSharing} />{peers.map(p => (<GroupPeerWrapper key={p.peerID} peer={p.peer} peerID={p.peerID} outputDeviceId={selectedSpeakerId} allUsers={voiceStates[activeChannel.id] || []} globalDeaf={isDeafened}/>))}</div><div className="h-20 flex justify-center items-center gap-4 mt-4 bg-black/40 rounded-2xl backdrop-blur-md border border-white/10 p-2 max-w-2xl mx-auto"><button onClick={toggleVideo} className={`p-3 rounded-full text-white transition-all hover:scale-105 ${isVideoOn ? 'bg-white text-black' : 'bg-gray-700 hover:bg-gray-600'}`} title="Toggle Camera">{isVideoOn ? <Video /> : <VideoOff />}</button><button onClick={toggleScreenShare} className={`p-3 rounded-full text-white transition-all hover:scale-105 ${isScreenSharing ? 'bg-green-500' : 'bg-gray-700 hover:bg-gray-600'}`} title="Share Screen">{isScreenSharing ? <Monitor /> : <MonitorOff />}</button><button onClick={toggleMute} className={`p-3 rounded-full text-white transition-all hover:scale-105 ${isMuted ? 'bg-red-500' : 'bg-gray-700 hover:bg-gray-600'}`} title="Toggle Microphone">{isMuted ? <MicOff/> : <Mic/>}</button><button onClick={leaveVoiceChannel} className="p-3 bg-red-600 rounded-full text-white hover:bg-red-700 hover:scale-105 transition-all" title="Disconnect"><PhoneOff/></button></div></div>
+             <div className="flex-1 bg-gray-900 p-4 flex flex-col relative"><div className="flex-1 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 auto-rows-fr h-full overflow-y-auto"><UserMediaComponent stream={isMuted ? null : processedStream} isLocal={true} userId="me" userAvatar={currentUser?.avatar} username={currentUser?.username} isScreenShare={isScreenSharing} userCustom={myCustomization} />{peers.map(p => (<GroupPeerWrapper key={p.peerID} peer={p.peer} peerID={p.peerID} outputDeviceId={selectedSpeakerId} allUsers={voiceStates[activeChannel.id] || []} globalDeaf={isDeafened}/>))}</div><div className="h-20 flex justify-center items-center gap-4 mt-4 bg-black/40 rounded-2xl backdrop-blur-md border border-white/10 p-2 max-w-2xl mx-auto"><button onClick={toggleVideo} className={`p-3 rounded-full text-white transition-all hover:scale-105 ${isVideoOn ? 'bg-white text-black' : 'bg-gray-700 hover:bg-gray-600'}`} title="Toggle Camera">{isVideoOn ? <Video /> : <VideoOff />}</button><button onClick={toggleScreenShare} className={`p-3 rounded-full text-white transition-all hover:scale-105 ${isScreenSharing ? 'bg-green-500' : 'bg-gray-700 hover:bg-gray-600'}`} title="Share Screen">{isScreenSharing ? <Monitor /> : <MonitorOff />}</button><button onClick={toggleMute} className={`p-3 rounded-full text-white transition-all hover:scale-105 ${isMuted ? 'bg-red-500' : 'bg-gray-700 hover:bg-gray-600'}`} title="Toggle Microphone">{isMuted ? <MicOff/> : <Mic/>}</button><button onClick={leaveVoiceChannel} className="p-3 bg-red-600 rounded-full text-white hover:bg-red-700 hover:scale-105 transition-all" title="Disconnect"><PhoneOff/></button></div></div>
           ) : (
              <>
              {/* TEXT CHAT VIEW */}
@@ -736,14 +868,19 @@ export default function EcoTalkApp() {
                 
                 {messages.map((m,i) => { 
                     const showDate = i===0 || formatDateHeader(messages[i-1].createdAt) !== formatDateHeader(m.createdAt);
+                    const msgNameColor = m.userCustom?.color ? SHOP_ITEMS.find(it => it.id === m.userCustom.color)?.value : '';
+                    const msgFrameStyle = m.userCustom?.frame ? SHOP_ITEMS.find(it => it.id === m.userCustom.frame)?.css : '';
+                    
                     return (
                         <div key={m.id} className="group relative hover:bg-[var(--bg-secondary)] p-2 rounded transition-colors">
                            {showDate && <div className="flex justify-center my-4"><span className="text-xs text-[var(--text-secondary)] bg-[var(--bg-tertiary)] px-2 py-1 rounded-full border border-[var(--border)]">{formatDateHeader(m.createdAt)}</span></div>}
                            <div className="flex items-start relative">
-                              <img src={m.user?.avatar} className="w-10 h-10 rounded-full mr-3 mt-1"/>
+                              <div className="w-10 h-10 flex-shrink-0 mr-3 mt-1 relative rounded-full" style={{ cssText: msgFrameStyle }}>
+                                  <img src={m.user?.avatar} className="w-full h-full rounded-full object-cover"/>
+                              </div>
                               <div className="flex-1 min-w-0">
                                  <div className="flex items-baseline">
-                                    <span className="font-bold text-sm mr-2 text-[var(--text-primary)]">{m.author}</span>
+                                    <span className="font-bold text-sm mr-2 text-[var(--text-primary)]" style={{ color: msgNameColor }}>{m.author}</span>
                                     <span className="text-[10px] text-[var(--text-secondary)]">{new Date(m.createdAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
                                  </div>
                                  {editingMessageId === m.id ? (
@@ -788,7 +925,7 @@ export default function EcoTalkApp() {
                     if(c) selectChannel(c);
                 }}>
                     <div className="grid grid-cols-2 h-full bg-gray-900">
-                        <UserMediaComponent stream={isMuted ? null : processedStream} isLocal={true} userId="me" userAvatar={currentUser?.avatar} username={currentUser?.username} isScreenShare={isScreenSharing} miniMode={true}/>
+                        <UserMediaComponent stream={isMuted ? null : processedStream} isLocal={true} userId="me" userAvatar={currentUser?.avatar} username={currentUser?.username} isScreenShare={isScreenSharing} miniMode={true} userCustom={myCustomization} />
                         {peers.map(p => (<GroupPeerWrapper key={p.peerID} peer={p.peer} peerID={p.peerID} outputDeviceId={selectedSpeakerId} allUsers={voiceStates[activeVoiceChannel] || []} globalDeaf={isDeafened} miniMode={true}/>))}
                     </div>
                 </div>
@@ -840,6 +977,71 @@ export default function EcoTalkApp() {
                 />
             </div>
         )}
+
+        {/* SHOP MODAL */}
+        {showShop && (
+            <div className="fixed inset-0 z-[90] bg-black/80 flex items-center justify-center p-4">
+                <div className="bg-[var(--bg-primary)] w-full max-w-2xl h-[80vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden relative border border-[var(--border)]">
+                    <div className="p-6 border-b border-[var(--border)] flex justify-between items-center bg-gradient-to-r from-yellow-500/10 to-transparent">
+                        <div>
+                            <h2 className="text-2xl font-bold flex items-center"><ShoppingBag className="mr-2 text-yellow-500"/> Item Shop</h2>
+                            <p className="text-sm text-[var(--text-secondary)]">Customize your profile!</p>
+                        </div>
+                        <div className="flex items-center gap-4">
+                            <div className="bg-yellow-500/20 text-yellow-600 px-4 py-2 rounded-full font-bold flex items-center border border-yellow-500/30">
+                                <Coins size={18} className="mr-2"/> {ecoCoins}
+                            </div>
+                            <button onClick={() => setShowShop(false)} className="p-2 hover:bg-[var(--bg-tertiary)] rounded-full"><X size={24}/></button>
+                        </div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-6 shop-grid">
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                            {SHOP_ITEMS.map(item => {
+                                const owned = myInventory.includes(item.id);
+                                const equipped = myCustomization[item.type as keyof typeof myCustomization] === item.id;
+                                return (
+                                    <div key={item.id} className={`border border-[var(--border)] rounded-xl p-4 flex flex-col items-center bg-[var(--bg-secondary)] hover:scale-[1.02] transition-transform ${equipped ? 'ring-2 ring-green-500' : ''}`}>
+                                        <div className="w-20 h-20 bg-gray-200 rounded-full mb-3 flex items-center justify-center relative overflow-hidden">
+                                            {item.type === 'color' && <div className="w-full h-full opacity-50" style={{ backgroundColor: item.value }}></div>}
+                                            {item.type === 'frame' && <div className="absolute inset-0 rounded-full" style={{ cssText: item.css }}></div>}
+                                            <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=shop`} className="w-16 h-16 rounded-full absolute z-10"/>
+                                        </div>
+                                        <div className="font-bold mb-1">{item.name}</div>
+                                        <div className="text-xs text-[var(--text-secondary)] mb-3 capitalize">{item.type}</div>
+                                        {owned ? (
+                                            <button onClick={() => toggleEquip(item)} className={`w-full py-2 rounded font-bold text-sm ${equipped ? 'bg-gray-200 text-gray-600' : 'bg-green-600 text-white'}`}>
+                                                {equipped ? 'Unequip' : 'Equip'}
+                                            </button>
+                                        ) : (
+                                            <button onClick={() => buyItem(item)} className="w-full py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded font-bold text-sm flex items-center justify-center">
+                                                <Coins size={14} className="mr-1"/> {item.price}
+                                            </button>
+                                        )}
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* DAILY BONUS MODAL */}
+        {showDailyModal && (
+            <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4">
+                <div className="bg-white p-8 rounded-2xl text-center max-w-sm w-full animate-in zoom-in duration-300">
+                    <div className="w-20 h-20 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4 text-yellow-500">
+                        <Gift size={40}/>
+                    </div>
+                    <h2 className="text-2xl font-bold text-gray-900 mb-2">Daily Bonus!</h2>
+                    <p className="text-gray-600 mb-6">You've earned 100 EcoCoins for logging in today.</p>
+                    <button onClick={claimDailyBonus} className="w-full py-3 bg-green-600 text-white font-bold rounded-xl text-lg hover:scale-105 transition-transform">
+                        Claim +100 Coins
+                    </button>
+                </div>
+            </div>
+        )}
+
       </div>
     </div>
   );
