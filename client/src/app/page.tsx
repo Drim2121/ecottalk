@@ -102,51 +102,104 @@ const useStreamAnalyzer = (stream: MediaStream | null) => {
     return isTalking;
 };
 
-// === PRO VOICE PROCESSING HOOK ===
+// === ULTRA-STABLE PRO VOICE HOOK ===
 const useProcessedStream = (rawStream: MediaStream | null, threshold: number, isMuted: boolean) => {
     const [processedStream, setProcessedStream] = useState<MediaStream | null>(null);
-    const gainNodeRef = useRef<GainNode | null>(null);
+    const contextRef = useRef<{ 
+        ctx: AudioContext; 
+        source: MediaStreamAudioSourceNode | null; 
+        destination: MediaStreamAudioDestinationNode; 
+        gainNode: GainNode; 
+        analyser: AnalyserNode 
+    } | null>(null);
+    
+    // Refs for real-time access inside interval
+    const isMutedRef = useRef(isMuted);
+    const thresholdRef = useRef(threshold);
 
-    // Initial Stream Setup
+    useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
+    useEffect(() => { thresholdRef.current = threshold; }, [threshold]);
+
+    // 1. Initialize Audio Engine ONCE
     useEffect(() => {
-        if (!rawStream) return;
-        if (rawStream.getVideoTracks().length > 0 || rawStream.getAudioTracks().length === 0) { setProcessedStream(rawStream); return; }
-
         const ctx = getAudioContext();
         if (!ctx) return;
 
-        const source = ctx.createMediaStreamSource(rawStream);
         const destination = ctx.createMediaStreamDestination();
         const gainNode = ctx.createGain();
         const analyser = ctx.createAnalyser();
         analyser.fftSize = 512;
 
-        source.connect(analyser);
-        analyser.connect(gainNode);
+        // Connect Chain: Gain -> Destination (Source will be plugged into Gain later)
         gainNode.connect(destination);
         
-        gainNodeRef.current = gainNode;
+        // Save to Ref
+        contextRef.current = { ctx, source: null, destination, gainNode, analyser };
+        
+        // Start Processing Loop
+        const interval = setInterval(() => {
+            if (!contextRef.current) return;
+            const { gainNode, analyser, ctx } = contextRef.current;
+            
+            // If physically muted, force silence
+            if (isMutedRef.current) {
+                gainNode.gain.setTargetAtTime(0, ctx.currentTime, 0.01);
+                return;
+            }
 
-        let interval: any;
-        const processAudio = () => {
-            // Software Gate Logic
+            // Noise Gate Logic
             const data = new Uint8Array(analyser.frequencyBinCount);
             analyser.getByteFrequencyData(data);
             let sum = 0; for (let i = 0; i < data.length; i++) sum += data[i];
             
-            // Only apply gate if NOT physically muted (physical mute handled below)
-            if ((sum / data.length) > threshold) { 
-                gainNode.gain.setTargetAtTime(1, ctx.currentTime, 0.05); 
-            } else { 
-                gainNode.gain.setTargetAtTime(0, ctx.currentTime, 0.2); 
+            if ((sum / data.length) > thresholdRef.current) {
+                gainNode.gain.setTargetAtTime(1, ctx.currentTime, 0.05); // Open
+            } else {
+                gainNode.gain.setTargetAtTime(0, ctx.currentTime, 0.2); // Close
             }
-        };
-        interval = setInterval(processAudio, 50);
-        const newTracks = [...destination.stream.getAudioTracks(), ...rawStream.getVideoTracks()];
-        setProcessedStream(new MediaStream(newTracks));
+        }, 50);
 
-        return () => { clearInterval(interval); source.disconnect(); analyser.disconnect(); gainNode.disconnect(); };
-    }, [rawStream, threshold]);
+        return () => clearInterval(interval);
+    }, []);
+
+    // 2. Connect/Disconnect Raw Stream (Mic)
+    useEffect(() => {
+        if (!contextRef.current || !rawStream) return;
+        const { ctx, gainNode, analyser, destination } = contextRef.current;
+
+        // If screen share (has video) or no audio, bypass processing
+        if (rawStream.getVideoTracks().length > 0 || rawStream.getAudioTracks().length === 0) {
+            setProcessedStream(rawStream);
+            return;
+        }
+
+        // Cleanup old source
+        if (contextRef.current.source) {
+            contextRef.current.source.disconnect();
+        }
+
+        // Create new source
+        const newSource = ctx.createMediaStreamSource(rawStream);
+        newSource.connect(analyser); // Analyzer first for gate
+        analyser.connect(gainNode);  // Then Gain for mute/gate
+        contextRef.current.source = newSource;
+
+        // Set output stream (Mix of processed audio + original video if any)
+        const combinedTracks = [...destination.stream.getAudioTracks(), ...rawStream.getVideoTracks()];
+        setProcessedStream(new MediaStream(combinedTracks));
+
+    }, [rawStream]);
+
+    // 3. FORCE TRACK SYNC: Toggle .enabled on the ACTUAL output track when mute changes
+    // This sends the signal to the peer!
+    useEffect(() => {
+        if (processedStream) {
+            processedStream.getAudioTracks().forEach(track => {
+                // IMPORTANT: This flips the bit that WebRTC sends to the other peer
+                track.enabled = !isMuted; 
+            });
+        }
+    }, [isMuted, processedStream]);
 
     return processedStream;
 };
@@ -166,9 +219,10 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
     const checkStatus = () => {
         setHasVideo(stream.getVideoTracks().length > 0 && stream.getVideoTracks()[0].enabled);
         const audioTrack = stream.getAudioTracks()[0];
-        setIsAudioEnabled(audioTrack ? audioTrack.enabled : false);
+        // Check both .enabled (User Mute) and .muted (System Mute)
+        setIsAudioEnabled(audioTrack ? (audioTrack.enabled && !audioTrack.muted) : false);
     };
-    const statusInterval = setInterval(checkStatus, 500);
+    const statusInterval = setInterval(checkStatus, 200); // Faster polling
     checkStatus();
     return () => clearInterval(statusInterval);
   }, [stream]);
@@ -285,6 +339,7 @@ export default function EcoTalkApp() {
   
   const [isVideoOn, setIsVideoOn] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
+  
   const processedStream = useProcessedStream(myStream, voiceThreshold, isMuted);
   const [muteKey, setMuteKey] = useState<string | null>(null);
   const [isRecordingKey, setIsRecordingKey] = useState(false);
@@ -301,19 +356,11 @@ export default function EcoTalkApp() {
   useEffect(() => { activeDMRef.current = activeDM; }, [activeDM]);
   useEffect(() => { document.documentElement.setAttribute('data-theme', theme); localStorage.setItem('eco_theme', theme); }, [theme]);
   
-  // === FIX: Sync Mute State to Track (so peers see the mute icon) ===
-  useEffect(() => {
-    if (processedStream) {
-      processedStream.getAudioTracks().forEach(track => {
-        track.enabled = !isMuted; // True = Unmuted, False = Muted
-      });
-    }
-  }, [isMuted, processedStream]);
-
+  // === GLOBAL KEYBIND LISTENER ===
   useEffect(() => {
       const handleKeyDown = (e: KeyboardEvent) => {
           if (isRecordingKey) { e.preventDefault(); setMuteKey(e.code); localStorage.setItem("eco_mute_key", e.code); setIsRecordingKey(false); playSound("click"); } 
-          else if (muteKey && e.code === muteKey) { const target = e.target as HTMLElement; if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return; e.preventDefault(); if (activeVoiceChannel && myStream) { toggleMute(); playSound("click"); } }
+          else if (muteKey && e.code === muteKey) { const target = e.target as HTMLElement; if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return; e.preventDefault(); if (activeVoiceChannel && myStream) { toggleMute(); } }
       };
       window.addEventListener("keydown", handleKeyDown); return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isRecordingKey, muteKey, activeVoiceChannel, myStream, isMuted, soundEnabled]); 
@@ -452,20 +499,26 @@ export default function EcoTalkApp() {
   };
   const leaveVoiceChannel = () => { if (myStream) myStream.getTracks().forEach((track) => track.stop()); setMyStream(null); setActiveVoiceChannel(null); setIsVideoOn(false); setIsScreenSharing(false); setIsDeafened(false); setIsMuted(false); playSound("leave"); if (activeChannel?.id === activeVoiceChannel) { const server = myServers.find((s) => s.id === activeServerId); const firstText = server?.channels?.find((c: any) => c.type === "text"); if (firstText) selectChannel(firstText); } };
   
+  // === TOGGLE MUTE (Mic) ===
   const toggleMute = () => { 
       if (!myStream) return; 
       playSound("click"); 
       const newState = !isMuted;
       setIsMuted(newState);
+      // Auto-undeafen if unmuting
       if (!newState && isDeafened) setIsDeafened(false);
   };
 
+  // === TOGGLE DEAFEN (Headphones) ===
   const toggleDeafen = () => {
       if (!myStream) return;
       playSound("click");
       const newState = !isDeafened;
       setIsDeafened(newState);
-      if (newState) setIsMuted(true);
+      if (newState) {
+          // If deafening, ensure mic is muted
+          setIsMuted(true);
+      }
   };
 
   const selectDM = (friend: any) => { if (friend.id === currentUser?.id) return; setActiveServerId(null); if (activeVoiceChannel) leaveVoiceChannel(); setActiveDM(friend); setActiveChannel(null); setMessages([]); const me = currentUser; if (!me) return; const ids = [me.id, friend.id].sort(); socket.emit("join_dm", { roomName: `dm_${ids[0]}_${ids[1]}` }); playSound("click"); };
