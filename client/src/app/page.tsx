@@ -4,7 +4,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Hash, Send, Plus, MessageSquare, LogOut, Paperclip, UserPlus, PhoneOff, Bell,
   Check, X, Settings, Trash2, UserMinus, Users, Volume2, Mic, MicOff, Smile, Edit2,
-  Palette, Zap, ZapOff, Video, VideoOff, Monitor, MonitorOff, Volume1, VolumeX, Camera
+  Palette, Zap, ZapOff, Video, VideoOff, Monitor, MonitorOff, Volume1, VolumeX, Camera,
+  Maximize // Иконка для фуллскрина
 } from "lucide-react";
 import io, { Socket } from "socket.io-client";
 import Peer from "simple-peer";
@@ -12,22 +13,13 @@ import Peer from "simple-peer";
 // ===== CONSTANTS =====
 const SOCKET_URL = "http://5.129.215.82:3001";
 
-// ===== PROFESSIONAL SOUNDS (Base64 Encoded) =====
-// Эти звуки вшиты в код. Они загружаются мгновенно и не зависят от интернета.
+// ===== SOUNDS (Base64) =====
 const SOUNDS = {
-  // Мягкий "Поп" для сообщений (Discord style)
-  msg: "data:audio/mpeg;base64,//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
-  // Хайтек звук входа
-  join: "data:audio/mp3;base64,//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
-  // Глухой звук выхода
-  leave: "data:audio/mp3;base64,//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
-  // Очень тихий клик (Apple style)
+  msg: "data:audio/mpeg;base64,//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
+  join: "data:audio/mp3;base64,//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
+  leave: "data:audio/mp3;base64,//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
   click: "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=" 
-  // (Примечание: click сокращен для экономии места, в реальности там будет короткий импульс)
 };
-
-// Реальный короткий клик
-const CLICK_SOUND = "data:audio/mp3;base64,//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq";
 
 // ===== THEMES =====
 const THEME_STYLES = `
@@ -45,55 +37,37 @@ const peerConfig = { iceServers: [ { urls: "stun:stun.l.google.com:19302" }, { u
 let globalAudioContext: AudioContext | null = null;
 const getAudioContext = () => { if (!globalAudioContext) { const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext; if (AudioContextClass) globalAudioContext = new AudioContextClass(); } return globalAudioContext; };
 
-// Функция воспроизведения звуков (через синтез для кликов, и base64 для событий)
+// Звуковой движок (Мягкие звуки)
 const playSoundEffect = (type: 'msg' | 'join' | 'leave' | 'click') => {
   const ctx = getAudioContext();
   if (!ctx) return;
   if (ctx.state === 'suspended') ctx.resume().catch(() => {});
 
   if (type === 'click') {
-    // Очень короткий и приятный "Тик" синтезатором (чтобы не грузить файлы на каждое нажатие)
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
+    const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
     osc.frequency.setValueAtTime(800, ctx.currentTime);
     gain.gain.setValueAtTime(0.05, ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05);
-    osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.05);
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.05);
   } else {
-    // Для важных событий используем "Pang" / "Bonus" звуки (эмуляция Base64 ссылок выше)
-    // В реальном продакшене тут лучше использовать короткие base64 строки, но для надежности пока оставим мягкий синтез, который ты просил "переработать"
-    // Давай сделаем "Маримбу" для сообщений
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
+    // Используем синусоиду для мягкости
+    const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
     const now = ctx.currentTime;
+    osc.type = 'sine';
 
     if (type === 'msg') {
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(440, now);
-        osc.frequency.setValueAtTime(554, now + 0.1); // A4 -> C#5
-        gain.gain.setValueAtTime(0.1, now);
-        gain.gain.linearRampToValueAtTime(0, now + 0.4);
-        osc.start(now); osc.stop(now + 0.4);
+        osc.frequency.setValueAtTime(440, now); osc.frequency.setValueAtTime(554, now + 0.1);
+        gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.4);
     } else if (type === 'join') {
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(300, now);
-        osc.frequency.linearRampToValueAtTime(600, now + 0.2);
-        gain.gain.setValueAtTime(0.1, now);
-        gain.gain.linearRampToValueAtTime(0, now + 0.3);
-        osc.start(now); osc.stop(now + 0.3);
+        osc.frequency.setValueAtTime(300, now); osc.frequency.linearRampToValueAtTime(600, now + 0.2);
+        gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.3);
     } else if (type === 'leave') {
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(400, now);
-        osc.frequency.linearRampToValueAtTime(200, now + 0.2);
-        gain.gain.setValueAtTime(0.1, now);
-        gain.gain.linearRampToValueAtTime(0, now + 0.3);
-        osc.start(now); osc.stop(now + 0.3);
+        osc.frequency.setValueAtTime(400, now); osc.frequency.linearRampToValueAtTime(200, now + 0.2);
+        gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.3);
     }
+    osc.start(now); osc.stop(now + 0.4);
   }
 };
 
@@ -115,15 +89,80 @@ const useAudioActivity = (stream: MediaStream | undefined | null) => {
 
 // --- COMPONENTS ---
 const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, username, outputDeviceId, isScreenShare }: { stream: MediaStream | null; isLocal: boolean; userId: string; userAvatar?: string; username?: string; outputDeviceId?: string; isScreenShare?: boolean; }) => {
-  const videoRef = useRef<HTMLVideoElement>(null); const isSpeaking = useAudioActivity(stream); const [hasVideo, setHasVideo] = useState(false);
-  useEffect(() => { if(!stream) { setHasVideo(false); return; } const checkVideo = () => setHasVideo(stream.getVideoTracks().length > 0 && stream.getVideoTracks()[0].enabled); checkVideo(); stream.getVideoTracks().forEach(track => { track.onmute = checkVideo; track.onunmute = checkVideo; track.onended = checkVideo; }); const interval = setInterval(checkVideo, 1000); return () => clearInterval(interval); }, [stream]);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isSpeaking = useAudioActivity(stream);
+  const [hasVideo, setHasVideo] = useState(false);
+  // State to track audio status explicitly for UI
+  const [isAudioEnabled, setIsAudioEnabled] = useState(true);
+
+  useEffect(() => {
+    if(!stream) { setHasVideo(false); setIsAudioEnabled(false); return; }
+    
+    const checkTracks = () => {
+        setHasVideo(stream.getVideoTracks().length > 0 && stream.getVideoTracks()[0].enabled);
+        const audioTrack = stream.getAudioTracks()[0];
+        setIsAudioEnabled(audioTrack ? audioTrack.enabled : false);
+    };
+    
+    checkTracks();
+    
+    stream.getTracks().forEach(track => {
+        track.onmute = checkTracks;
+        track.onunmute = checkTracks;
+        track.onended = checkTracks;
+        // Listen to 'enabled' property changes (polling is safer for cross-browser)
+    });
+    
+    const interval = setInterval(checkTracks, 500); 
+    return () => clearInterval(interval);
+  }, [stream]);
+
   useEffect(() => { if (videoRef.current && stream && videoRef.current.srcObject !== stream) videoRef.current.srcObject = stream; }, [stream]);
   useEffect(() => { if (isLocal || !videoRef.current || !outputDeviceId) return; const anyVideo = videoRef.current as any; if (typeof anyVideo.setSinkId === "function") anyVideo.setSinkId(outputDeviceId).catch(() => {}); }, [outputDeviceId, isLocal]);
+
+  // Fullscreen Handler
+  const toggleFullscreen = () => {
+      if (!containerRef.current) return;
+      if (!document.fullscreenElement) {
+          containerRef.current.requestFullscreen().catch(err => console.log(err));
+      } else {
+          document.exitFullscreen();
+      }
+  };
+
   return (
-    <div className="flex flex-col items-center justify-center p-2 h-full w-full relative bg-black/20 rounded-xl overflow-hidden border border-white/10">
+    <div ref={containerRef} className="flex flex-col items-center justify-center p-2 h-full w-full relative bg-black/20 rounded-xl overflow-hidden border border-white/10 group">
       <video ref={videoRef} autoPlay playsInline muted={isLocal} className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${hasVideo ? 'opacity-100' : 'opacity-0'} ${isLocal && !isScreenShare ? 'scale-x-[-1]' : ''}`} />
-      {!hasVideo && (<div className="z-10 flex flex-col items-center"><div className={`relative w-24 h-24 rounded-full p-1 transition-all ${isSpeaking ? "bg-green-500 shadow-lg scale-110" : "bg-gray-700"}`}><img src={userAvatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userId}`} className="w-full h-full rounded-full object-cover border-2 border-gray-900" alt="avatar"/>{!isLocal && !stream?.getAudioTracks()[0]?.enabled && <div className="absolute bottom-0 right-0 bg-red-500 rounded-full p-1"><MicOff size={12} className="text-white" /></div>}</div></div>)}
-      <div className="absolute bottom-2 left-2 z-20 text-white font-bold text-xs bg-black/60 px-2 py-1 rounded backdrop-blur-sm flex items-center gap-1">{username || "User"} {isLocal && "(You)"}</div>
+      
+      {/* Avatar Fallback */}
+      {!hasVideo && (
+        <div className="z-10 flex flex-col items-center">
+            <div className={`relative w-24 h-24 rounded-full p-1 transition-all ${isSpeaking ? "bg-green-500 shadow-lg scale-110" : "bg-gray-700"}`}>
+                <img src={userAvatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userId}`} className="w-full h-full rounded-full object-cover border-2 border-gray-900" alt="avatar"/>
+            </div>
+        </div>
+      )}
+
+      {/* MUTE INDICATOR (RED ICON) - NOW VISIBLE ON VIDEO TOO */}
+      {!isAudioEnabled && (
+          <div className="absolute top-2 right-2 bg-red-600 p-1.5 rounded-full shadow-lg z-20">
+              <MicOff size={14} className="text-white" />
+          </div>
+      )}
+
+      {/* FULLSCREEN BUTTON (Visible on Hover) */}
+      <button 
+        onClick={toggleFullscreen}
+        className="absolute bottom-10 right-2 p-1.5 bg-black/50 hover:bg-black/80 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity z-20"
+        title="Fullscreen"
+      >
+        <Maximize size={16} />
+      </button>
+
+      <div className="absolute bottom-2 left-2 z-20 text-white font-bold text-xs bg-black/60 px-2 py-1 rounded backdrop-blur-sm flex items-center gap-1">
+        {username || "User"} {isLocal && "(You)"}
+      </div>
     </div>
   );
 });
@@ -190,7 +229,7 @@ export default function EcoTalkApp() {
   const [selectedMicId, setSelectedMicId] = useState<string>("");
   const [selectedSpeakerId, setSelectedSpeakerId] = useState<string>("");
   const [enableNoiseSuppression, setEnableNoiseSuppression] = useState(true);
-  const [soundEnabled, setSoundEnabled] = useState(true); // TOGGLE STATE
+  const [soundEnabled, setSoundEnabled] = useState(true);
   const [isTestingMic, setIsTestingMic] = useState(false);
   const testAudioRef = useRef<HTMLAudioElement>(null);
   const [activeVoiceChannel, setActiveVoiceChannel] = useState<number | null>(null);
@@ -204,7 +243,6 @@ export default function EcoTalkApp() {
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // === FIX: THEME PERSISTENCE ===
-  // Load theme immediately on mount
   useEffect(() => {
     const savedTheme = localStorage.getItem("eco_theme");
     if (savedTheme) {
@@ -223,7 +261,8 @@ export default function EcoTalkApp() {
   useEffect(() => { tokenRef.current = token; }, [token]);
   useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
   useEffect(() => { activeDMRef.current = activeDM; }, [activeDM]);
-  // Sync theme changes to localStorage
+  
+  // Save theme on change
   useEffect(() => { 
       document.documentElement.setAttribute('data-theme', theme); 
       localStorage.setItem('eco_theme', theme); 
@@ -231,7 +270,6 @@ export default function EcoTalkApp() {
 
   useEffect(() => {
     setMounted(true); const storedToken = localStorage.getItem("eco_token"); if (storedToken) { setToken(storedToken); fetchUserData(storedToken); }
-    // Theme loaded in separate effect above
     const savedMic = localStorage.getItem("eco_mic_id"); const savedSpeaker = localStorage.getItem("eco_speaker_id"); if (savedMic) setSelectedMicId(savedMic); if (savedSpeaker) setSelectedSpeakerId(savedSpeaker);
     const savedNC = localStorage.getItem("eco_nc"); if (savedNC !== null) setEnableNoiseSuppression(savedNC === "true");
     const savedSound = localStorage.getItem("eco_sound"); if (savedSound !== null) setSoundEnabled(savedSound === "true");
@@ -283,10 +321,7 @@ export default function EcoTalkApp() {
     socket.on("all_users_in_voice", handleAllUsers); socket.on("user_joined_voice", handleUserJoined); socket.on("receiving_returned_signal", handleReturned); socket.on("user_left_voice", handleLeft);
     const t = setTimeout(() => socket.emit("join_voice_channel", activeVoiceChannel), 100);
     return () => { clearTimeout(t); socket.off("all_users_in_voice", handleAllUsers); socket.off("user_joined_voice", handleUserJoined); socket.off("receiving_returned_signal", handleReturned); socket.off("user_left_voice", handleLeft); peersRef.current.forEach((p) => p.peer.destroy()); peersRef.current = []; setPeers([]); socket.emit("leave_voice_channel"); };
-  }, [activeVoiceChannel, myStream, socket]); // Note: playSound depends on state but we use refs/global, so it's fine
-
-  // Re-sync sound function when state changes to avoid stale closure (or just check state in render, but playSound is helper)
-  // We handle this via `soundEnabled` state being updated in component and used in `playSound` wrapper above
+  }, [activeVoiceChannel, myStream, socket]); 
 
   function createPeer(userToSignal: string, callerID: string, stream: MediaStream, s: Socket) { const peer = new Peer({ initiator: true, trickle: false, stream, config: peerConfig }); peer.on("signal", (signal) => { s.emit("sending_signal", { userToSignal, callerID, signal }); }); return peer; }
   function addPeer(incomingSignal: any, callerID: string, stream: MediaStream, s: Socket) { const peer = new Peer({ initiator: false, trickle: false, stream, config: peerConfig }); peer.on("signal", (signal) => { s.emit("returning_signal", { signal, callerID }); }); peer.signal(incomingSignal); return peer; }
