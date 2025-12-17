@@ -5,7 +5,7 @@ import {
   Hash, Send, Plus, MessageSquare, LogOut, Paperclip, UserPlus, PhoneOff, Bell,
   Check, X, Settings, Trash2, UserMinus, Users, Volume2, Mic, MicOff, Smile, Edit2,
   Palette, Zap, ZapOff, Video, VideoOff, Monitor, MonitorOff, Volume1, VolumeX, Camera,
-  Maximize, Minimize, Keyboard, Sliders // Sliders иконка
+  Maximize, Minimize, Keyboard, Sliders
 } from "lucide-react";
 import io, { Socket } from "socket.io-client";
 import Peer from "simple-peer";
@@ -72,22 +72,25 @@ const playSoundEffect = (type: 'msg' | 'join' | 'leave' | 'click') => {
   }
 };
 
-// === VOICE GATE (NOISE GATE) ENGINE ===
-// This hook not only detects speaking but actively MUTES the track if below threshold
-const useVoiceGate = (stream: MediaStream | null, threshold: number, isGlobalMute: boolean) => {
+// === FIXED VOICE ENGINE ===
+// This handles Mute state AND Volume Detection separately to avoid the "Deadlock" bug
+const useAudioController = (stream: MediaStream | null, threshold: number, isGlobalMute: boolean) => {
   const [isTalking, setIsTalking] = useState(false);
-  const holdTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!stream || stream.getAudioTracks().length === 0) return;
     
-    // If globally muted, force disable track immediately
+    // 1. HARDWARE MUTE LOGIC (Priority 1)
+    const track = stream.getAudioTracks()[0];
     if (isGlobalMute) {
-        stream.getAudioTracks()[0].enabled = false;
+        track.enabled = false;
         setIsTalking(false);
-        return;
+        return; // Stop processing if manually muted
+    } else {
+        track.enabled = true; // Always enable if not manually muted
     }
 
+    // 2. ANALYZER LOGIC (Visuals & Threshold)
     const ctx = getAudioContext();
     if (!ctx) return;
 
@@ -98,7 +101,7 @@ const useVoiceGate = (stream: MediaStream | null, threshold: number, isGlobalMut
     try {
       if (ctx.state === "suspended") ctx.resume();
       analyser = ctx.createAnalyser();
-      analyser.fftSize = 512;
+      analyser.fftSize = 256;
       source = ctx.createMediaStreamSource(stream);
       source.connect(analyser);
 
@@ -111,42 +114,17 @@ const useVoiceGate = (stream: MediaStream | null, threshold: number, isGlobalMut
         for (let i = 0; i < data.length; i++) sum += data[i];
         const average = sum / data.length;
 
-        // Threshold logic (0-100 mapped to volume)
-        // Adjust sensitivity: Threshold 0 = Always on. Threshold 50 = Loud talking only.
-        const isLoudEnough = average > threshold;
-
-        if (isLoudEnough) {
-            // Speech detected
-            if (holdTimeout.current) clearTimeout(holdTimeout.current);
-            setIsTalking(true);
-            stream.getAudioTracks()[0].enabled = true;
-        } else {
-            // Silence detected - Wait before cutting (Hysteresis)
-            if (!holdTimeout.current && stream.getAudioTracks()[0].enabled) {
-                holdTimeout.current = setTimeout(() => {
-                    if(!isGlobalMute) { // Check again
-                       setIsTalking(false);
-                       stream.getAudioTracks()[0].enabled = false; // MUTE HARDWARE
-                    }
-                    holdTimeout.current = null;
-                }, 500); // 500ms delay before cutting mic
-            }
-        }
+        // Visual Threshold logic
+        setIsTalking(average > threshold);
       };
 
       interval = setInterval(checkVolume, 100);
-
-      // Force enable initially if threshold is 0
-      if(threshold === 0) stream.getAudioTracks()[0].enabled = true;
 
     } catch (e) { console.error(e); }
 
     return () => {
       if (interval) clearInterval(interval);
-      if (holdTimeout.current) clearTimeout(holdTimeout.current);
       try { source?.disconnect(); analyser?.disconnect(); } catch {}
-      // Reset track state on unmount or change
-      if (stream.getAudioTracks().length > 0 && !isGlobalMute) stream.getAudioTracks()[0].enabled = true; 
     };
   }, [stream, threshold, isGlobalMute]);
 
@@ -158,35 +136,29 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   
-  // Visualizer only
-  const [isSpeaking, setIsSpeaking] = useState(false);
+  // UI States
   const [hasVideo, setHasVideo] = useState(false);
   const [isAudioEnabled, setIsAudioEnabled] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  
+  // Use hook purely for speaking detection visualization
+  // NOTE: For local user, we pass actual threshold in main app. 
+  // For remote users, we just visualize based on if audio is flowing (simplified).
+  const isSpeaking = useAudioController(isLocal ? stream : null, 10, !isAudioEnabled); 
 
   useEffect(() => {
-    if(!stream) { setHasVideo(false); setIsAudioEnabled(false); setIsSpeaking(false); return; }
+    if(!stream) { setHasVideo(false); setIsAudioEnabled(false); return; }
     
-    // Polling for track status (remote peers)
     const checkStatus = () => {
         setHasVideo(stream.getVideoTracks().length > 0 && stream.getVideoTracks()[0].enabled);
         const audioTrack = stream.getAudioTracks()[0];
         setIsAudioEnabled(audioTrack ? audioTrack.enabled : false);
-        
-        // Simple visualizer for remote peers (since local is handled by main logic)
-        if(!isLocal && audioTrack && audioTrack.enabled) {
-             // We can't easily analyze remote streams due to CORS without complex setups, 
-             // so we rely on the 'enabled' flag for the UI mainly.
-             // But let's try a simple volume check if Context allows
-             setIsSpeaking(true); // Simplified for remote
-        } else {
-             setIsSpeaking(false);
-        }
     };
     
-    const interval = setInterval(checkStatus, 200);
+    checkStatus(); // Initial check
+    const interval = setInterval(checkStatus, 500); // Polling for robust updates
     return () => clearInterval(interval);
-  }, [stream, isLocal]);
+  }, [stream]);
 
   useEffect(() => {
       const handleFsChange = () => { setIsFullscreen(!!document.fullscreenElement); };
@@ -210,7 +182,7 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
       <video ref={videoRef} autoPlay playsInline muted={isLocal} className={`absolute inset-0 w-full h-full ${objectFitClass} transition-all duration-300 ${hasVideo ? 'opacity-100' : 'opacity-0'} ${isLocal && !isScreenShare ? 'scale-x-[-1]' : ''}`} />
       {!hasVideo && (
         <div className="z-10 flex flex-col items-center">
-            <div className={`relative w-24 h-24 rounded-full p-1 transition-all duration-200 ${isAudioEnabled ? "bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.6)] scale-105" : "bg-gray-700"}`}>
+            <div className={`relative w-24 h-24 rounded-full p-1 transition-all duration-150 ${isSpeaking ? "bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.6)] scale-105" : "bg-gray-700"}`}>
                 <img src={userAvatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userId}`} className="w-full h-full rounded-full object-cover border-2 border-gray-900" alt="avatar"/>
             </div>
         </div>
@@ -300,8 +272,8 @@ export default function EcoTalkApp() {
   const [isVideoOn, setIsVideoOn] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   
-  // USE VOICE GATE HOOK (Controls mute based on volume)
-  useVoiceGate(myStream, voiceThreshold, isMuted);
+  // USE AUDIO CONTROLLER (Fixes the Mute Bug)
+  const isLocalSpeaking = useAudioController(myStream, voiceThreshold, isMuted);
 
   // KEYBINDS
   const [muteKey, setMuteKey] = useState<string | null>(null);
@@ -497,7 +469,7 @@ export default function EcoTalkApp() {
           if (firstText) selectChannel(firstText);
       }
   };
-  const toggleMute = () => { if (!myStream) return; playSound("click"); const track = myStream.getAudioTracks()[0]; if (!track) return; /* Toggle handled by Hook via state */ setIsMuted(!isMuted); };
+  const toggleMute = () => { if (!myStream) return; playSound("click"); const track = myStream.getAudioTracks()[0]; if (!track) return; setIsMuted(!isMuted); };
   const selectDM = (friend: any) => { if (friend.id === currentUser?.id) return; setActiveServerId(null); if (activeVoiceChannel) leaveVoiceChannel(); setActiveDM(friend); setActiveChannel(null); setMessages([]); const me = currentUser; if (!me) return; const ids = [me.id, friend.id].sort(); socket.emit("join_dm", { roomName: `dm_${ids[0]}_${ids[1]}` }); playSound("click"); };
   const sendMessage = () => { const me = currentUser; if (!me || !inputText) return; socket.emit("send_message", { content: inputText, author: me.username, userId: me.id, channelId: activeServerId ? activeChannel?.id : null, dmRoom: activeDM ? `dm_${[me.id, activeDM.id].sort().join("_")}` : null, }); setInputText(""); const room = activeServerId ? `channel_${activeChannel?.id}` : activeDM ? `dm_${[me.id, activeDM.id].sort().join("_")}` : null; if (room) socket.emit("stop_typing", { room }); };
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onloadend = () => socket.emit("send_message", { content: null, imageUrl: reader.result, type: "image", author: currentUser.username, userId: currentUser.id, channelId: activeServerId ? activeChannel?.id : null, dmRoom: activeDM ? `dm_${[currentUser.id, activeDM.id].sort().join("_")}` : null, }); reader.readAsDataURL(file); };
@@ -641,7 +613,7 @@ export default function EcoTalkApp() {
               
               <div className="mb-2">
                   <div className="flex justify-between items-center mb-1">
-                      <label className="text-xs font-bold text-[var(--text-secondary)] flex items-center"><Sliders size={12} className="mr-1"/> VOICE GATE (THRESHOLD)</label>
+                      <label className="text-xs font-bold text-[var(--text-secondary)] flex items-center"><Sliders size={12} className="mr-1"/> VOICE ACTIVATION LEVEL</label>
                       <span className="text-xs font-mono">{voiceThreshold}%</span>
                   </div>
                   <input type="range" min="0" max="100" value={voiceThreshold} onChange={(e) => saveAudioSettings(selectedMicId, selectedSpeakerId, enableNoiseSuppression, soundEnabled, Number(e.target.value))} className="w-full h-2 bg-[var(--border)] rounded-lg appearance-none cursor-pointer"/>
