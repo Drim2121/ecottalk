@@ -639,6 +639,7 @@ export default function EcoTalkApp() {
   }
 
   const activeFriendData = myFriends.find(f => f.id === activeDM?.id);
+  const isVoiceActiveView = activeChannel?.type === 'voice';
 
   return (
     <div className="flex h-screen overflow-hidden bg-[var(--bg-primary)] text-[var(--text-primary)] font-[var(--font-family)] notranslate">
