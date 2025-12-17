@@ -72,18 +72,67 @@ const playSoundEffect = (type: 'msg' | 'join' | 'leave' | 'click') => {
   }
 };
 
-// === PRO VOICE PROCESSING HOOK (MIXER + GATE) ===
+// === UNIVERSAL ANALYZER (WORKS FOR LOCAL AND REMOTE) ===
+// Calculates volume to determine if the green border should show
+const useStreamAnalyzer = (stream: MediaStream | null, isMuted: boolean = false) => {
+    const [isTalking, setIsTalking] = useState(false);
+
+    useEffect(() => {
+        if (!stream || stream.getAudioTracks().length === 0 || isMuted) {
+            setIsTalking(false);
+            return;
+        }
+
+        const ctx = getAudioContext();
+        if (!ctx) return;
+
+        let source: MediaStreamAudioSourceNode | null = null;
+        let analyser: AnalyserNode | null = null;
+        let interval: any = null;
+
+        try {
+            if (ctx.state === "suspended") ctx.resume();
+            analyser = ctx.createAnalyser();
+            analyser.fftSize = 256;
+            source = ctx.createMediaStreamSource(stream);
+            source.connect(analyser);
+
+            const checkVolume = () => {
+                if (!analyser) return;
+                const data = new Uint8Array(analyser.frequencyBinCount);
+                analyser.getByteFrequencyData(data);
+                
+                let sum = 0;
+                for (let i = 0; i < data.length; i++) sum += data[i];
+                const average = sum / data.length;
+
+                // Threshold: 10 to ignore background hum
+                setIsTalking(average > 10);
+            };
+
+            interval = setInterval(checkVolume, 100);
+        } catch (e) {
+            // CORS issues usually don't block volume analysis for WebRTC
+        }
+
+        return () => {
+            if (interval) clearInterval(interval);
+            try { source?.disconnect(); analyser?.disconnect(); } catch {}
+        };
+    }, [stream, isMuted]);
+
+    return isTalking;
+};
+
+// === LOCAL AUDIO PROCESSING (GATE + MIX) ===
 const useProcessedStream = (rawStream: MediaStream | null, threshold: number, isMuted: boolean) => {
     const [processedStream, setProcessedStream] = useState<MediaStream | null>(null);
-    const [isTalking, setIsTalking] = useState(false);
     
     useEffect(() => {
         if (!rawStream) return;
         const ctx = getAudioContext();
         if (!ctx) return;
 
-        // If it's a screen share stream (video track present), we might have mixed audio already
-        // but let's apply the gate anyway if there is an audio track
         if (rawStream.getAudioTracks().length === 0) {
             setProcessedStream(rawStream);
             return;
@@ -104,7 +153,6 @@ const useProcessedStream = (rawStream: MediaStream | null, threshold: number, is
         const processAudio = () => {
             if(isMuted) {
                 gainNode.gain.setTargetAtTime(0, ctx.currentTime, 0.01);
-                setIsTalking(false);
                 return;
             }
 
@@ -116,16 +164,14 @@ const useProcessedStream = (rawStream: MediaStream | null, threshold: number, is
 
             if (average > threshold) {
                 gainNode.gain.setTargetAtTime(1, ctx.currentTime, 0.05);
-                setIsTalking(true);
             } else {
                 gainNode.gain.setTargetAtTime(0, ctx.currentTime, 0.2);
-                setIsTalking(false);
             }
         };
 
         interval = setInterval(processAudio, 50);
         
-        // Combine the processed audio with original video (if any)
+        // Combine processed audio with original video
         const newTracks = [...destination.stream.getAudioTracks(), ...rawStream.getVideoTracks()];
         setProcessedStream(new MediaStream(newTracks));
 
@@ -137,73 +183,56 @@ const useProcessedStream = (rawStream: MediaStream | null, threshold: number, is
         };
     }, [rawStream, threshold, isMuted]);
 
-    return { processedStream, isTalking };
+    return processedStream;
 };
 
 // --- COMPONENTS ---
 const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, username, outputDeviceId, isScreenShare }: { stream: MediaStream | null; isLocal: boolean; userId: string; userAvatar?: string; username?: string; outputDeviceId?: string; isScreenShare?: boolean; }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  
+  // 1. Analyze for Visuals (Green Border)
+  // For local user, we assume not muted if stream is active, for remote we check tracks
+  const isSpeaking = useStreamAnalyzer(stream, false); 
+  
+  // 2. Track State
   const [hasVideo, setHasVideo] = useState(false);
   const [isAudioEnabled, setIsAudioEnabled] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [volume, setVolume] = useState(1);
-  const [isTalking, setIsTalking] = useState(false);
 
   useEffect(() => {
-    if(!stream) { setHasVideo(false); setIsAudioEnabled(false); setIsTalking(false); return; }
+    if(!stream) { setHasVideo(false); setIsAudioEnabled(false); return; }
     
     const checkStatus = () => {
         setHasVideo(stream.getVideoTracks().length > 0 && stream.getVideoTracks()[0].enabled);
         const audioTrack = stream.getAudioTracks()[0];
         setIsAudioEnabled(audioTrack ? audioTrack.enabled : false);
     };
-    const statusInterval = setInterval(checkStatus, 500);
-
-    let analyser: AnalyserNode | null = null;
-    let source: MediaStreamAudioSourceNode | null = null;
-    let volInterval: any = null;
-
-    const ctx = getAudioContext();
-    if (ctx && stream.getAudioTracks().length > 0) {
-        try {
-            if (ctx.state === 'suspended') ctx.resume();
-            analyser = ctx.createAnalyser();
-            analyser.fftSize = 256;
-            source = ctx.createMediaStreamSource(stream);
-            source.connect(analyser); 
-            
-            const checkVol = () => {
-                if(!analyser) return;
-                const data = new Uint8Array(analyser.frequencyBinCount);
-                analyser.getByteFrequencyData(data);
-                let sum = 0; for(let i=0; i<data.length; i++) sum+=data[i];
-                setIsTalking((sum/data.length) > 5);
-            };
-            volInterval = setInterval(checkVol, 100);
-        } catch(e) {}
-    }
-
-    return () => { 
-        clearInterval(statusInterval); 
-        if(volInterval) clearInterval(volInterval); 
-        try { source?.disconnect(); analyser?.disconnect(); } catch {}
-    };
+    
+    checkStatus();
+    const interval = setInterval(checkStatus, 500); 
+    return () => clearInterval(interval);
   }, [stream]);
 
+  // Handle Fullscreen changes
+  useEffect(() => {
+      const handleFsChange = () => { setIsFullscreen(!!document.fullscreenElement); };
+      document.addEventListener("fullscreenchange", handleFsChange);
+      return () => document.removeEventListener("fullscreenchange", handleFsChange);
+  }, []);
+
+  // Set Volume and Source
   useEffect(() => { if(videoRef.current) videoRef.current.volume = volume; }, [volume]);
   useEffect(() => { if (videoRef.current && stream && videoRef.current.srcObject !== stream) videoRef.current.srcObject = stream; }, [stream]);
+  
+  // Set Output Device
   useEffect(() => { if (isLocal || !videoRef.current || !outputDeviceId) return; const anyVideo = videoRef.current as any; if (typeof anyVideo.setSinkId === "function") anyVideo.setSinkId(outputDeviceId).catch(() => {}); }, [outputDeviceId, isLocal]);
 
   const toggleFullscreen = () => {
       if (!containerRef.current) return;
       if (!document.fullscreenElement) { containerRef.current.requestFullscreen().catch(err => console.log(err)); } else { document.exitFullscreen(); }
   };
-  useEffect(() => {
-      const handleFsChange = () => { setIsFullscreen(!!document.fullscreenElement); };
-      document.addEventListener("fullscreenchange", handleFsChange);
-      return () => document.removeEventListener("fullscreenchange", handleFsChange);
-  }, []);
 
   const objectFitClass = (isScreenShare || isFullscreen) ? 'object-contain' : 'object-cover';
   const containerClass = isFullscreen 
@@ -216,15 +245,19 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
       
       {!hasVideo && (
         <div className="z-10 flex flex-col items-center">
-            <div className={`relative w-24 h-24 rounded-full p-1 transition-all duration-150 ${isTalking ? "bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.6)] scale-105" : "bg-gray-700"}`}>
+            <div className={`relative w-24 h-24 rounded-full p-1 transition-all duration-150 ${isSpeaking ? "bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.6)] scale-105" : "bg-gray-700"}`}>
                 <img src={userAvatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userId}`} className="w-full h-full rounded-full object-cover border-2 border-gray-900" alt="avatar"/>
             </div>
         </div>
       )}
 
-      {hasVideo && isTalking && (<div className="absolute inset-0 border-4 border-green-500 rounded-xl z-20 pointer-events-none opacity-50"></div>)}
+      {/* Visualizer Ring (Video Mode) */}
+      {hasVideo && isSpeaking && (<div className="absolute inset-0 border-4 border-green-500 rounded-xl z-20 pointer-events-none opacity-50"></div>)}
+
+      {/* Mute Icon */}
       {!isAudioEnabled && (<div className="absolute top-4 right-4 bg-red-600 p-2 rounded-full shadow-lg z-20 animate-in fade-in zoom-in duration-200"><MicOff size={16} className="text-white" /></div>)}
       
+      {/* Volume Slider (Remote) */}
       {!isLocal && (
           <div className="absolute bottom-12 left-1/2 -translate-x-1/2 w-3/4 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 px-3 py-1 rounded-full flex items-center gap-2 z-30">
               <Volume size={14} className="text-gray-300"/>
@@ -233,7 +266,7 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
       )}
 
       <button onClick={toggleFullscreen} className="absolute bottom-10 right-4 p-2 bg-black/50 hover:bg-black/80 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity z-20">{isFullscreen ? <Minimize size={20}/> : <Maximize size={20}/>}</button>
-      <div className={`absolute bottom-4 left-4 z-20 text-white font-bold text-sm bg-black/60 px-3 py-1 rounded backdrop-blur-sm flex items-center gap-1 ${isFullscreen ? 'scale-125 origin-bottom-left' : ''}`}>{username || "User"} {isLocal && "(You)"}</div>
+      <div className={`absolute bottom-4 left-4 z-20 text-white font-bold text-sm bg-black/60 px-3 py-1 rounded backdrop-blur-sm flex items-center gap-1 ${isFullscreen ? 'scale-125 origin-bottom-left' : ''}`}>{username || "Guest"} {isLocal && "(You)"}</div>
     </div>
   );
 });
@@ -243,7 +276,8 @@ const GroupPeerWrapper = React.memo(({ peer, peerID, outputDeviceId, allUsers }:
   const [stream, setStream] = useState<MediaStream | null>(null);
   useEffect(() => { const onStream = (s: MediaStream) => setStream(s); peer.on("stream", onStream); if ((peer as any)._remoteStreams?.length) setStream((peer as any)._remoteStreams[0]); return () => { peer.off("stream", onStream); }; }, [peer]);
   const u = allUsers.find((x: any) => x.socketId === peerID);
-  return <UserMediaComponent stream={stream} isLocal={false} userId={peerID} userAvatar={u?.avatar} username={u?.username || "Connecting..."} outputDeviceId={outputDeviceId} isScreenShare={false}/>;
+  // Pass correct name if available, otherwise UserMediaComponent will handle fallback
+  return <UserMediaComponent stream={stream} isLocal={false} userId={peerID} userAvatar={u?.avatar} username={u?.username} outputDeviceId={outputDeviceId} isScreenShare={false}/>;
 });
 GroupPeerWrapper.displayName = "GroupPeerWrapper";
 
@@ -316,8 +350,8 @@ export default function EcoTalkApp() {
   const [isVideoOn, setIsVideoOn] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   
-  // USE PROCESSED STREAM HOOK
-  const { processedStream, isTalking: isLocalTalking } = useProcessedStream(myStream, voiceThreshold, isMuted);
+  // USE PROCESSED STREAM HOOK (Software Gate & Mixing)
+  const processedStream = useProcessedStream(myStream, voiceThreshold, isMuted);
 
   // KEYBINDS
   const [muteKey, setMuteKey] = useState<string | null>(null);
