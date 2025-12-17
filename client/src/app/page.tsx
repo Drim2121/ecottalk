@@ -5,7 +5,7 @@ import {
   Hash, Send, Plus, MessageSquare, LogOut, Paperclip, UserPlus, PhoneOff, Bell,
   Check, X, Settings, Trash2, UserMinus, Users, Volume2, Mic, MicOff, Smile, Edit2,
   Palette, Zap, ZapOff, Video, VideoOff, Monitor, MonitorOff, Volume1, VolumeX, Camera,
-  Maximize // Иконка для фуллскрина
+  Maximize, Minimize // Добавлена иконка Minimize
 } from "lucide-react";
 import io, { Socket } from "socket.io-client";
 import Peer from "simple-peer";
@@ -27,6 +27,8 @@ const THEME_STYLES = `
   :root[data-theme="neon"] { --bg-primary: #0f172a; --bg-secondary: #1e293b; --bg-tertiary: #334155; --text-primary: #f8fafc; --text-secondary: #94a3b8; --accent: #38bdf8; --border: #1e293b; --font-family: 'Courier New', monospace; }
   :root[data-theme="vintage"] { --bg-primary: #fffbeb; --bg-secondary: #fef3c7; --bg-tertiary: #fde68a; --text-primary: #78350f; --text-secondary: #92400e; --accent: #d97706; --border: #fcd34d; --font-family: 'Georgia', serif; }
   body, div, input, textarea, video { transition: background-color 0.3s ease, color 0.3s ease; }
+  /* Убираем стандартные контролы видео в полноэкранном режиме на некоторых браузерах */
+  video::-webkit-media-controls { display:none !important; }
 `;
 
 let _socket: Socket | null = null;
@@ -37,7 +39,6 @@ const peerConfig = { iceServers: [ { urls: "stun:stun.l.google.com:19302" }, { u
 let globalAudioContext: AudioContext | null = null;
 const getAudioContext = () => { if (!globalAudioContext) { const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext; if (AudioContextClass) globalAudioContext = new AudioContextClass(); } return globalAudioContext; };
 
-// Звуковой движок (Мягкие звуки)
 const playSoundEffect = (type: 'msg' | 'join' | 'leave' | 'click') => {
   const ctx = getAudioContext();
   if (!ctx) return;
@@ -51,12 +52,10 @@ const playSoundEffect = (type: 'msg' | 'join' | 'leave' | 'click') => {
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05);
     osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.05);
   } else {
-    // Используем синусоиду для мягкости
     const osc = ctx.createOscillator(); const gain = ctx.createGain();
     osc.connect(gain); gain.connect(ctx.destination);
     const now = ctx.currentTime;
     osc.type = 'sine';
-
     if (type === 'msg') {
         osc.frequency.setValueAtTime(440, now); osc.frequency.setValueAtTime(554, now + 0.1);
         gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.4);
@@ -93,35 +92,34 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
   const containerRef = useRef<HTMLDivElement>(null);
   const isSpeaking = useAudioActivity(stream);
   const [hasVideo, setHasVideo] = useState(false);
-  // State to track audio status explicitly for UI
   const [isAudioEnabled, setIsAudioEnabled] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false); // Track fullscreen state
 
   useEffect(() => {
     if(!stream) { setHasVideo(false); setIsAudioEnabled(false); return; }
-    
     const checkTracks = () => {
         setHasVideo(stream.getVideoTracks().length > 0 && stream.getVideoTracks()[0].enabled);
         const audioTrack = stream.getAudioTracks()[0];
         setIsAudioEnabled(audioTrack ? audioTrack.enabled : false);
     };
-    
     checkTracks();
-    
-    stream.getTracks().forEach(track => {
-        track.onmute = checkTracks;
-        track.onunmute = checkTracks;
-        track.onended = checkTracks;
-        // Listen to 'enabled' property changes (polling is safer for cross-browser)
-    });
-    
+    stream.getTracks().forEach(track => { track.onmute = checkTracks; track.onunmute = checkTracks; track.onended = checkTracks; });
     const interval = setInterval(checkTracks, 500); 
     return () => clearInterval(interval);
   }, [stream]);
 
+  // Listen for fullscreen changes
+  useEffect(() => {
+      const handleFsChange = () => {
+          setIsFullscreen(!!document.fullscreenElement);
+      };
+      document.addEventListener("fullscreenchange", handleFsChange);
+      return () => document.removeEventListener("fullscreenchange", handleFsChange);
+  }, []);
+
   useEffect(() => { if (videoRef.current && stream && videoRef.current.srcObject !== stream) videoRef.current.srcObject = stream; }, [stream]);
   useEffect(() => { if (isLocal || !videoRef.current || !outputDeviceId) return; const anyVideo = videoRef.current as any; if (typeof anyVideo.setSinkId === "function") anyVideo.setSinkId(outputDeviceId).catch(() => {}); }, [outputDeviceId, isLocal]);
 
-  // Fullscreen Handler
   const toggleFullscreen = () => {
       if (!containerRef.current) return;
       if (!document.fullscreenElement) {
@@ -131,11 +129,18 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
       }
   };
 
+  // Determine styles based on state
+  // If Screen Share OR Fullscreen -> Use 'object-contain' to see everything without cropping
+  const objectFitClass = (isScreenShare || isFullscreen) ? 'object-contain' : 'object-cover';
+  // If Fullscreen -> No border radius, background black
+  const containerClass = isFullscreen 
+      ? 'fixed inset-0 z-50 bg-black rounded-none flex flex-col items-center justify-center' 
+      : 'flex flex-col items-center justify-center p-2 h-full w-full relative bg-black/20 rounded-xl overflow-hidden border border-white/10 group transition-all';
+
   return (
-    <div ref={containerRef} className="flex flex-col items-center justify-center p-2 h-full w-full relative bg-black/20 rounded-xl overflow-hidden border border-white/10 group">
-      <video ref={videoRef} autoPlay playsInline muted={isLocal} className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${hasVideo ? 'opacity-100' : 'opacity-0'} ${isLocal && !isScreenShare ? 'scale-x-[-1]' : ''}`} />
+    <div ref={containerRef} className={containerClass}>
+      <video ref={videoRef} autoPlay playsInline muted={isLocal} className={`absolute inset-0 w-full h-full ${objectFitClass} transition-all duration-300 ${hasVideo ? 'opacity-100' : 'opacity-0'} ${isLocal && !isScreenShare ? 'scale-x-[-1]' : ''}`} />
       
-      {/* Avatar Fallback */}
       {!hasVideo && (
         <div className="z-10 flex flex-col items-center">
             <div className={`relative w-24 h-24 rounded-full p-1 transition-all ${isSpeaking ? "bg-green-500 shadow-lg scale-110" : "bg-gray-700"}`}>
@@ -144,23 +149,19 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
         </div>
       )}
 
-      {/* MUTE INDICATOR (RED ICON) - NOW VISIBLE ON VIDEO TOO */}
+      {/* MUTE INDICATOR */}
       {!isAudioEnabled && (
-          <div className="absolute top-2 right-2 bg-red-600 p-1.5 rounded-full shadow-lg z-20">
-              <MicOff size={14} className="text-white" />
+          <div className="absolute top-4 right-4 bg-red-600 p-2 rounded-full shadow-lg z-20 animate-in fade-in zoom-in duration-200">
+              <MicOff size={16} className="text-white" />
           </div>
       )}
 
-      {/* FULLSCREEN BUTTON (Visible on Hover) */}
-      <button 
-        onClick={toggleFullscreen}
-        className="absolute bottom-10 right-2 p-1.5 bg-black/50 hover:bg-black/80 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity z-20"
-        title="Fullscreen"
-      >
-        <Maximize size={16} />
+      {/* FULLSCREEN BTN */}
+      <button onClick={toggleFullscreen} className="absolute bottom-10 right-4 p-2 bg-black/50 hover:bg-black/80 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity z-20">
+        {isFullscreen ? <Minimize size={20}/> : <Maximize size={20}/>}
       </button>
 
-      <div className="absolute bottom-2 left-2 z-20 text-white font-bold text-xs bg-black/60 px-2 py-1 rounded backdrop-blur-sm flex items-center gap-1">
+      <div className={`absolute bottom-4 left-4 z-20 text-white font-bold text-sm bg-black/60 px-3 py-1 rounded backdrop-blur-sm flex items-center gap-1 ${isFullscreen ? 'scale-125 origin-bottom-left' : ''}`}>
         {username || "User"} {isLocal && "(You)"}
       </div>
     </div>
@@ -242,7 +243,6 @@ export default function EcoTalkApp() {
   const lastTypingTime = useRef<number>(0);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // === FIX: THEME PERSISTENCE ===
   useEffect(() => {
     const savedTheme = localStorage.getItem("eco_theme");
     if (savedTheme) {
@@ -262,7 +262,6 @@ export default function EcoTalkApp() {
   useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
   useEffect(() => { activeDMRef.current = activeDM; }, [activeDM]);
   
-  // Save theme on change
   useEffect(() => { 
       document.documentElement.setAttribute('data-theme', theme); 
       localStorage.setItem('eco_theme', theme); 
@@ -347,13 +346,7 @@ export default function EcoTalkApp() {
   const toggleMicTest = async () => { if (isTestingMic) { if (testAudioRef.current?.srcObject) { (testAudioRef.current.srcObject as MediaStream).getTracks().forEach((t) => t.stop()); testAudioRef.current.srcObject = null; } setIsTestingMic(false); return; } try { const constraints = { audio: { deviceId: selectedMicId ? { exact: selectedMicId } : undefined, echoCancellation: true, noiseSuppression: enableNoiseSuppression, autoGainControl: true } }; const stream = await navigator.mediaDevices.getUserMedia(constraints); if (testAudioRef.current) { testAudioRef.current.srcObject = stream; const anyAudio = testAudioRef.current as any; if (selectedSpeakerId && typeof anyAudio.setSinkId === "function") { await anyAudio.setSinkId(selectedSpeakerId); } await testAudioRef.current.play().catch(() => {}); } setIsTestingMic(true); } catch (e) { console.error(e); alert("Mic error"); } };
   const closeSettings = () => { if (isTestingMic) toggleMicTest(); setShowUserSettings(false); playSound("click"); };
   const updateUserProfile = async () => { const res = await fetch(`${SOCKET_URL}/api/me`, { method: "PUT", headers: { "Content-Type": "application/json", Authorization: token! }, body: JSON.stringify({ username: editUserName, avatar: editUserAvatar }), }); if (res.ok) { const updated = await res.json(); setCurrentUser((prev: any) => ({ ...prev, ...updated })); setShowUserSettings(false); alert("Updated!"); } };
-  
-  // === CLICKABLE AVATAR UPLOAD ===
-  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>, isUser: boolean) => { 
-      const file = e.target.files?.[0]; if (!file) return; 
-      const reader = new FileReader(); reader.onloadend = () => { if (isUser) setEditUserAvatar(reader.result as string); else setEditServerIcon(reader.result as string); }; reader.readAsDataURL(file); 
-  };
-
+  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>, isUser: boolean) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onloadend = () => { if (isUser) setEditUserAvatar(reader.result as string); else setEditServerIcon(reader.result as string); }; reader.readAsDataURL(file); };
   const removeFriend = async (friendId: number) => { if (!token) return; if (!confirm("Remove?")) return; const res = await fetch(`${SOCKET_URL}/api/friends/${friendId}`, { method: "DELETE", headers: { Authorization: token }, }); if (res.ok) { setMyFriends((prev) => prev.filter((f) => f.id !== friendId)); if (activeDM?.id === friendId) setActiveDM(null); } };
   const kickMember = async (userId: number) => { if (!activeServerId || !token) return; if (!confirm("Kick?")) return; const res = await fetch(`${SOCKET_URL}/api/server/${activeServerId}/kick/${userId}`, { method: "DELETE", headers: { Authorization: token }, }); if (res.ok) selectServer(activeServerId); };
   const createServer = async () => { if (!newServerName || !token) return; const res = await fetch(`${SOCKET_URL}/api/servers`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: token }, body: JSON.stringify({ name: newServerName }), }); if (res.ok) { setNewServerName(""); setShowCreateServer(false); fetchUserData(token); } };
