@@ -168,7 +168,7 @@ export default function EcoTalkApp() {
   const [voiceStates, setVoiceStates] = useState<Record<number, any[]>>({});
   const [activeServerId, setActiveServerId] = useState<number | null>(null);
   const [activeServerData, setActiveServerData] = useState<any>(null);
-  const [activeChannel, setActiveChannel] = useState<any>(null); // MAIN VIEW
+  const [activeChannel, setActiveChannel] = useState<any>(null);
   const [activeDM, setActiveDM] = useState<any>(null);
   const activeDMRef = useRef<any>(null);
   const [showNotifPanel, setShowNotifPanel] = useState(false);
@@ -206,16 +206,13 @@ export default function EcoTalkApp() {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [isTestingMic, setIsTestingMic] = useState(false);
   const testAudioRef = useRef<HTMLAudioElement>(null);
-  
-  // VOICE STATE
-  const [activeVoiceChannel, setActiveVoiceChannel] = useState<number | null>(null); // VOICE CONNECTION
+  const [activeVoiceChannel, setActiveVoiceChannel] = useState<number | null>(null);
   const [myStream, setMyStream] = useState<MediaStream | null>(null);
   const [peers, setPeers] = useState<{ peerID: string; peer: Peer.Instance }[]>([]);
   const peersRef = useRef<{ peerID: string; peer: Peer.Instance }[]>([]);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOn, setIsVideoOn] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
-  
   const lastTypingTime = useRef<number>(0);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -301,13 +298,7 @@ export default function EcoTalkApp() {
   const updateChannel = async () => { if (!editingChannel) return; const res = await fetch(`${SOCKET_URL}/api/channels/${editingChannel.id}`, { method: "PUT", headers: { "Content-Type": "application/json", Authorization: token! }, body: JSON.stringify({ name: newChannelName }), }); if (res.ok) { setEditingChannel(null); selectServer(activeServerId!); } };
   const deleteChannel = async () => { if (!editingChannel || !confirm("Delete channel?")) return; const res = await fetch(`${SOCKET_URL}/api/channels/${editingChannel.id}`, { method: "DELETE", headers: { Authorization: token! }, }); if (res.ok) { if (activeChannel?.id === editingChannel.id) setActiveChannel(null); setEditingChannel(null); selectServer(activeServerId!); } };
   const openUserProfile = () => { if (!currentUser) return; setEditUserName(currentUser.username); setEditUserAvatar(currentUser.avatar); navigator.mediaDevices.getUserMedia({ audio: true }).then(() => { navigator.mediaDevices.enumerateDevices().then((d) => { setAudioInputs(d.filter((x) => x.kind === "audioinput")); setAudioOutputs(d.filter((x) => x.kind === "audiooutput")); }); }).catch((e) => console.log("Perms denied")); setShowUserSettings(true); playSound("click"); };
-  
-  const saveAudioSettings = (mic: string, spk: string, nc: boolean, sound: boolean) => { 
-      setSelectedMicId(mic); setSelectedSpeakerId(spk); setEnableNoiseSuppression(nc); setSoundEnabled(sound);
-      localStorage.setItem("eco_mic_id", mic); localStorage.setItem("eco_speaker_id", spk); localStorage.setItem("eco_nc", String(nc)); localStorage.setItem("eco_sound", String(sound));
-      if(sound) playSoundEffect("click"); 
-  };
-
+  const saveAudioSettings = (mic: string, spk: string, nc: boolean, sound: boolean) => { setSelectedMicId(mic); setSelectedSpeakerId(spk); setEnableNoiseSuppression(nc); setSoundEnabled(sound); localStorage.setItem("eco_mic_id", mic); localStorage.setItem("eco_speaker_id", spk); localStorage.setItem("eco_nc", String(nc)); localStorage.setItem("eco_sound", String(sound)); if(sound) playSoundEffect("click"); };
   const toggleMicTest = async () => { if (isTestingMic) { if (testAudioRef.current?.srcObject) { (testAudioRef.current.srcObject as MediaStream).getTracks().forEach((t) => t.stop()); testAudioRef.current.srcObject = null; } setIsTestingMic(false); return; } try { const constraints = { audio: { deviceId: selectedMicId ? { exact: selectedMicId } : undefined, echoCancellation: true, noiseSuppression: enableNoiseSuppression, autoGainControl: true } }; const stream = await navigator.mediaDevices.getUserMedia(constraints); if (testAudioRef.current) { testAudioRef.current.srcObject = stream; const anyAudio = testAudioRef.current as any; if (selectedSpeakerId && typeof anyAudio.setSinkId === "function") { await anyAudio.setSinkId(selectedSpeakerId); } await testAudioRef.current.play().catch(() => {}); } setIsTestingMic(true); } catch (e) { console.error(e); alert("Mic error"); } };
   const closeSettings = () => { if (isTestingMic) toggleMicTest(); setShowUserSettings(false); playSound("click"); };
   const updateUserProfile = async () => { const res = await fetch(`${SOCKET_URL}/api/me`, { method: "PUT", headers: { "Content-Type": "application/json", Authorization: token! }, body: JSON.stringify({ username: editUserName, avatar: editUserAvatar }), }); if (res.ok) { const updated = await res.json(); setCurrentUser((prev: any) => ({ ...prev, ...updated })); setShowUserSettings(false); alert("Updated!"); } };
@@ -322,42 +313,10 @@ export default function EcoTalkApp() {
   const selectServer = async (serverId: number) => { if (!token) return; setActiveServerId(serverId); setActiveDM(null); if (activeVoiceChannel) leaveVoiceChannel(); const res = await fetch(`${SOCKET_URL}/api/server/${serverId}`, { headers: { Authorization: token } }); const data = await res.json(); setActiveServerData(data); setCurrentServerMembers(data.members.map((m: any) => m.user)); setMyServers((p) => p.map((s) => (s.id === serverId ? data : s))); if (data.channels.length > 0) selectChannel(data.channels[0]); playSound("click"); };
 
   const getMediaConstraints = (video: boolean) => ({ video: video ? { width: 640, height: 480, facingMode: "user" } : false, audio: { deviceId: selectedMicId ? { exact: selectedMicId } : undefined, echoCancellation: true, noiseSuppression: enableNoiseSuppression, autoGainControl: true } });
-  
-  // === MODIFIED SELECT CHANNEL (PERSISTENT VOICE) ===
-  const selectChannel = (c: any) => {
-    // If clicking the same voice channel, just focus it
-    if (activeVoiceChannel === c.id) { setActiveChannel(c); return; }
-    
-    // If clicking a NEW voice channel, leave old one first
-    if (c.type === 'voice') {
-        if (activeVoiceChannel && activeVoiceChannel !== c.id) leaveVoiceChannel();
-        setActiveChannel(c);
-        setActiveVoiceChannel(c.id); playSound("join");
-        navigator.mediaDevices.getUserMedia(getMediaConstraints(false)).then((s) => { setMyStream(s); setIsMuted(false); setIsVideoOn(false); setIsScreenSharing(false); }).catch((e) => { console.error(e); alert("Mic Error"); setActiveVoiceChannel(null); });
-    } else {
-        // If clicking Text Channel, just switch view, DON'T leave voice
-        setActiveChannel(c); 
-        setMessages([]); 
-        socket.emit("join_channel", { channelId: c.id }); 
-        playSound("click"); 
-    }
-  };
-
+  const selectChannel = (c: any) => { if (activeVoiceChannel === c.id) { setActiveChannel(c); return; } if (c.type === 'voice') { if (activeVoiceChannel && activeVoiceChannel !== c.id) leaveVoiceChannel(); setActiveChannel(c); setActiveVoiceChannel(c.id); playSound("join"); navigator.mediaDevices.getUserMedia(getMediaConstraints(false)).then((s) => { setMyStream(s); setIsMuted(false); setIsVideoOn(false); setIsScreenSharing(false); }).catch((e) => { console.error(e); alert("Mic Error"); setActiveVoiceChannel(null); }); } else { setActiveChannel(c); setMessages([]); socket.emit("join_channel", { channelId: c.id }); playSound("click"); } };
   const toggleVideo = async () => { if (!activeVoiceChannel) return; playSound("click"); if (isVideoOn || isScreenSharing) { const stream = await navigator.mediaDevices.getUserMedia(getMediaConstraints(false)); if (myStream) myStream.getTracks().forEach(t => t.stop()); setMyStream(stream); setIsVideoOn(false); setIsScreenSharing(false); } else { try { const stream = await navigator.mediaDevices.getUserMedia(getMediaConstraints(true)); if (myStream) myStream.getTracks().forEach(t => t.stop()); setMyStream(stream); setIsVideoOn(true); setIsScreenSharing(false); } catch (e) { console.error(e); alert("Could not start video"); } } };
   const toggleScreenShare = async () => { if (!activeVoiceChannel) return; playSound("click"); if (isScreenSharing) { const stream = await navigator.mediaDevices.getUserMedia(getMediaConstraints(false)); if (myStream) myStream.getTracks().forEach(t => t.stop()); setMyStream(stream); setIsScreenSharing(false); setIsVideoOn(false); } else { try { const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }); const micStream = await navigator.mediaDevices.getUserMedia({ audio: getMediaConstraints(false).audio }); const tracks = [ ...screenStream.getVideoTracks(), ...micStream.getAudioTracks() ]; const combinedStream = new MediaStream(tracks); screenStream.getVideoTracks()[0].onended = () => { toggleScreenShare(); }; if (myStream) myStream.getTracks().forEach(t => t.stop()); setMyStream(combinedStream); setIsScreenSharing(true); setIsVideoOn(false); } catch(e) { console.log("Screen share cancelled"); } } };
-  
-  const leaveVoiceChannel = () => { 
-      if (myStream) myStream.getTracks().forEach((track) => track.stop()); 
-      setMyStream(null); setActiveVoiceChannel(null); setIsVideoOn(false); setIsScreenSharing(false); 
-      playSound("leave"); 
-      // Don't change activeChannel if it's text, only if it was the voice channel view
-      if (activeChannel?.id === activeVoiceChannel) {
-          const server = myServers.find((s) => s.id === activeServerId); 
-          const firstText = server?.channels?.find((c: any) => c.type === "text"); 
-          if (firstText) selectChannel(firstText);
-      }
-  };
-
+  const leaveVoiceChannel = () => { if (myStream) myStream.getTracks().forEach((track) => track.stop()); setMyStream(null); setActiveVoiceChannel(null); setIsVideoOn(false); setIsScreenSharing(false); playSound("leave"); if (activeChannel?.id === activeVoiceChannel) { const server = myServers.find((s) => s.id === activeServerId); const firstText = server?.channels?.find((c: any) => c.type === "text"); if (firstText) selectChannel(firstText); } };
   const toggleMute = () => { if (!myStream) return; playSound("click"); const track = myStream.getAudioTracks()[0]; if (!track) return; track.enabled = !track.enabled; setIsMuted(!track.enabled); };
   const selectDM = (friend: any) => { if (friend.id === currentUser?.id) return; setActiveServerId(null); if (activeVoiceChannel) leaveVoiceChannel(); setActiveDM(friend); setActiveChannel(null); setMessages([]); const me = currentUser; if (!me) return; const ids = [me.id, friend.id].sort(); socket.emit("join_dm", { roomName: `dm_${ids[0]}_${ids[1]}` }); playSound("click"); };
   const sendMessage = () => { const me = currentUser; if (!me || !inputText) return; socket.emit("send_message", { content: inputText, author: me.username, userId: me.id, channelId: activeServerId ? activeChannel?.id : null, dmRoom: activeDM ? `dm_${[me.id, activeDM.id].sort().join("_")}` : null, }); setInputText(""); const room = activeServerId ? `channel_${activeChannel?.id}` : activeDM ? `dm_${[me.id, activeDM.id].sort().join("_")}` : null; if (room) socket.emit("stop_typing", { room }); };
@@ -416,7 +375,6 @@ export default function EcoTalkApp() {
             )}
           </div>
           
-          {/* === VOICE CONNECTED PANEL === */}
           {activeVoiceChannel && (
               <div className="absolute bottom-12 left-0 right-0 bg-green-900/90 text-white p-2 border-t border-green-700 flex items-center justify-between z-20">
                   <div className="flex flex-col text-xs px-2 truncate">
@@ -438,7 +396,50 @@ export default function EcoTalkApp() {
           {activeChannel?.type === 'voice' ? (
              <div className="flex-1 bg-gray-900 p-4 flex flex-col relative"><div className="flex-1 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 auto-rows-fr h-full overflow-y-auto"><UserMediaComponent stream={myStream} isLocal={true} userId="me" username={currentUser?.username} userAvatar={currentUser?.avatar} isScreenShare={isScreenSharing} />{peers.map(p => (<GroupPeerWrapper key={p.peerID} peer={p.peer} peerID={p.peerID} outputDeviceId={selectedSpeakerId} allUsers={voiceStates[activeChannel.id] || []}/>))}</div><div className="h-20 flex justify-center items-center gap-4 mt-4 bg-black/40 rounded-2xl backdrop-blur-md border border-white/10 p-2 max-w-2xl mx-auto"><button onClick={toggleVideo} className={`p-3 rounded-full text-white transition-all hover:scale-105 ${isVideoOn ? 'bg-white text-black' : 'bg-gray-700 hover:bg-gray-600'}`} title="Toggle Camera">{isVideoOn ? <Video /> : <VideoOff />}</button><button onClick={toggleScreenShare} className={`p-3 rounded-full text-white transition-all hover:scale-105 ${isScreenSharing ? 'bg-green-500' : 'bg-gray-700 hover:bg-gray-600'}`} title="Share Screen">{isScreenSharing ? <Monitor /> : <MonitorOff />}</button><button onClick={toggleMute} className={`p-3 rounded-full text-white transition-all hover:scale-105 ${isMuted ? 'bg-red-500' : 'bg-gray-700 hover:bg-gray-600'}`} title="Toggle Microphone">{isMuted ? <MicOff/> : <Mic/>}</button><button onClick={leaveVoiceChannel} className="p-3 bg-red-600 rounded-full text-white hover:bg-red-700 hover:scale-105 transition-all" title="Disconnect"><PhoneOff/></button></div></div>
           ) : (
-             <><div className="flex-1 overflow-y-auto p-4 space-y-4">{messages.map((m,i) => { const showDate = i===0 || formatDateHeader(messages[i-1].createdAt) !== formatDateHeader(m.createdAt); return ( <div key={m.id} className="group">{showDate && <div className="flex justify-center my-4"><span className="text-xs text-[var(--text-secondary)] bg-[var(--bg-tertiary)] px-2 py-1 rounded-full border border-[var(--border)]">{formatDateHeader(m.createdAt)}</span></div>}<div className="flex items-start hover:bg-[var(--bg-secondary)] p-1 rounded relative"><img src={m.user?.avatar} className="w-10 h-10 rounded-full mr-3 mt-1"/><div className="flex-1 min-w-0"><div className="flex items-baseline"><span className="font-bold text-sm mr-2 text-[var(--text-primary)]">{m.author}</span><span className="text-[10px] text-[var(--text-secondary)]">{new Date(m.createdAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span></div>{editingMessageId === m.id ? (<div className="mt-1"><input className="w-full border p-1 rounded text-sm bg-[var(--bg-tertiary)] text-[var(--text-primary)]" value={editInputText} onChange={e=>setEditInputText(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submitEdit(m.id)}/><div className="text-[10px] text-[var(--text-secondary)] mt-1">Esc to cancel • Enter to save</div></div>) : (<div className="text-[var(--text-primary)] text-sm whitespace-pre-wrap">{m.content}</div>)}{m.imageUrl && <img src={m.imageUrl} className="mt-2 rounded-lg max-w-sm"/>}<div className="flex gap-1 mt-1">{m.reactions?.map((r:any) => (<div key={r.id} className="bg-[var(--bg-tertiary)] px-1.5 py-0.5 rounded text-xs border border-[var(--border)] text-[var(--text-secondary)]" title={r.user.username}>{r.emoji}</div>))}</div></div></div></div>); })}{typingUsers.length > 0 && <div className="text-xs text-[var(--text-secondary)] font-bold px-4 animate-pulse">Someone is typing...</div>}</div><div className="p-4"><div className="border border-[var(--border)] rounded-lg flex items-center p-2 bg-[var(--bg-tertiary)]"><input type="file" ref={fileInputRef} hidden onChange={handleFile}/><Paperclip size={20} className="text-[var(--text-secondary)] cursor-pointer mr-2" onClick={()=>fileInputRef.current?.click()}/><input className="flex-1 outline-none bg-transparent text-[var(--text-primary)]" placeholder="Message..." value={inputText} onChange={handleTyping} onKeyDown={e=>e.key==='Enter'&&sendMessage()}/><Send size={20} className="cursor-pointer text-[var(--text-secondary)]" onClick={sendMessage}/></div></div></>
+             <><div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {messages.map((m,i) => { 
+                    const showDate = i===0 || formatDateHeader(messages[i-1].createdAt) !== formatDateHeader(m.createdAt);
+                    return (
+                        <div key={m.id} className="group relative hover:bg-[var(--bg-secondary)] p-2 rounded transition-colors">
+                           {showDate && <div className="flex justify-center my-4"><span className="text-xs text-[var(--text-secondary)] bg-[var(--bg-tertiary)] px-2 py-1 rounded-full border border-[var(--border)]">{formatDateHeader(m.createdAt)}</span></div>}
+                           <div className="flex items-start relative">
+                              <img src={m.user?.avatar} className="w-10 h-10 rounded-full mr-3 mt-1"/>
+                              <div className="flex-1 min-w-0">
+                                 <div className="flex items-baseline">
+                                    <span className="font-bold text-sm mr-2 text-[var(--text-primary)]">{m.author}</span>
+                                    <span className="text-[10px] text-[var(--text-secondary)]">{new Date(m.createdAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                                 </div>
+                                 {editingMessageId === m.id ? (
+                                    <div className="mt-1"><input className="w-full border p-1 rounded text-sm bg-[var(--bg-tertiary)] text-[var(--text-primary)]" value={editInputText} onChange={e=>setEditInputText(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submitEdit(m.id)} autoFocus/><div className="text-[10px] text-[var(--text-secondary)] mt-1">Esc to cancel • Enter to save</div></div>
+                                 ) : (
+                                    <div className="text-[var(--text-primary)] text-sm whitespace-pre-wrap">{m.content}</div>
+                                 )}
+                                 {m.imageUrl && <img src={m.imageUrl} className="mt-2 rounded-lg max-w-sm"/>}
+                                 <div className="flex flex-wrap gap-1 mt-1">{m.reactions?.map((r:any) => (<div key={r.id} className="bg-[var(--bg-tertiary)] px-1.5 py-0.5 rounded text-[10px] border border-[var(--border)] text-[var(--text-secondary)]" title={r.user.username}>{r.emoji}</div>))}</div>
+                              </div>
+                           </div>
+                           
+                           {/* === MESSAGE ACTIONS (HOVER) === */}
+                           <div className="absolute right-2 top-[-10px] hidden group-hover:flex items-center gap-1 bg-[var(--bg-primary)] border border-[var(--border)] shadow-sm rounded-md px-1 py-0.5 z-10">
+                                <button onClick={() => toggleReaction(m.id, "👍")} className="hover:bg-[var(--bg-tertiary)] p-1 rounded text-xs grayscale hover:grayscale-0 transition-all">👍</button>
+                                <button onClick={() => toggleReaction(m.id, "😂")} className="hover:bg-[var(--bg-tertiary)] p-1 rounded text-xs grayscale hover:grayscale-0 transition-all">😂</button>
+                                <button onClick={() => toggleReaction(m.id, "❤️")} className="hover:bg-[var(--bg-tertiary)] p-1 rounded text-xs grayscale hover:grayscale-0 transition-all">❤️</button>
+                                <button onClick={() => toggleReaction(m.id, "🔥")} className="hover:bg-[var(--bg-tertiary)] p-1 rounded text-xs grayscale hover:grayscale-0 transition-all">🔥</button>
+                                {currentUser?.id === m.userId && (
+                                    <>
+                                        <div className="w-[1px] h-3 bg-gray-300 mx-1"></div>
+                                        <button onClick={() => startEditing(m)} className="text-gray-500 hover:text-blue-500 p-1 transition-colors"><Edit2 size={12}/></button>
+                                        <button onClick={() => deleteMessage(m.id)} className="text-gray-500 hover:text-red-500 p-1 transition-colors"><Trash2 size={12}/></button>
+                                    </>
+                                )}
+                           </div>
+                        </div>
+                    );
+                })}
+                {typingUsers.length > 0 && <div className="text-xs text-[var(--text-secondary)] font-bold px-4 animate-pulse">Someone is typing...</div>}
+             </div>
+             <div className="p-4"><div className="border border-[var(--border)] rounded-lg flex items-center p-2 bg-[var(--bg-tertiary)]"><input type="file" ref={fileInputRef} hidden onChange={handleFile}/><Paperclip size={20} className="text-[var(--text-secondary)] cursor-pointer mr-2" onClick={()=>fileInputRef.current?.click()}/><input className="flex-1 outline-none bg-transparent text-[var(--text-primary)]" placeholder="Message..." value={inputText} onChange={handleTyping} onKeyDown={e=>e.key==='Enter'&&sendMessage()}/><Send size={20} className="cursor-pointer text-[var(--text-secondary)]" onClick={sendMessage}/></div></div>
+             </>
           )}
         </div>
         {activeServerId && showMembersPanel && (<div className="w-60 bg-[var(--bg-secondary)] border-l border-[var(--border)] p-3 hidden lg:block overflow-y-auto"><h3 className="text-xs font-bold text-[var(--text-secondary)] mb-2">MEMBERS — {currentServerMembers.length}</h3>{currentServerMembers.map(member => (<div key={member.id} className="flex items-center justify-between group p-2 hover:bg-[var(--bg-tertiary)] rounded cursor-pointer" onClick={() => selectDM(member)}><div className="flex items-center gap-2"><div className="relative w-8 h-8 flex-shrink-0"><img src={member.avatar} className="rounded-full w-full h-full object-cover"/><div className={`absolute bottom-0 right-0 w-2.5 h-2.5 border-2 border-white rounded-full ${member.status==='online'?'bg-green-500':'bg-gray-400'}`}></div></div><div className="flex flex-col"><span className={`font-medium text-sm leading-tight ${member.id === activeServerData?.ownerId ? 'text-yellow-600' : 'text-[var(--text-primary)]'}`}>{member.username}</span></div></div></div>))}</div>)}
