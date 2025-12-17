@@ -102,42 +102,84 @@ const useStreamAnalyzer = (stream: MediaStream | null) => {
     return isTalking;
 };
 
-// === PRO VOICE PROCESSING HOOK (MIXER + GATE) ===
+// === PRO VOICE PROCESSING HOOK (INSTANT MUTE WITHOUT DISCONNECT) ===
 const useProcessedStream = (rawStream: MediaStream | null, threshold: number, isMuted: boolean) => {
     const [processedStream, setProcessedStream] = useState<MediaStream | null>(null);
+    const gainNodeRef = useRef<GainNode | null>(null);
+    const isMutedRef = useRef(isMuted);
+    const thresholdRef = useRef(threshold);
+
+    // Keep refs updated to avoid re-running the main effect
+    useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
+    useEffect(() => { thresholdRef.current = threshold; }, [threshold]);
+
     useEffect(() => {
         if (!rawStream) return;
-        if (rawStream.getVideoTracks().length > 0) { setProcessedStream(rawStream); return; }
-        if (rawStream.getAudioTracks().length === 0) { setProcessedStream(rawStream); return; }
+        
+        // If it's a screen share or has no audio, pass through
+        if (rawStream.getVideoTracks().length > 0 || rawStream.getAudioTracks().length === 0) {
+             setProcessedStream(rawStream);
+             return;
+        }
 
         const ctx = getAudioContext();
         if (!ctx) return;
 
         const source = ctx.createMediaStreamSource(rawStream);
         const destination = ctx.createMediaStreamDestination();
-        const gainNode = ctx.createGain();
+        const gainNode = ctx.createGain(); // The Gate/Mute controller
         const analyser = ctx.createAnalyser();
         analyser.fftSize = 512;
 
         source.connect(analyser);
         analyser.connect(gainNode);
         gainNode.connect(destination);
+        
+        // Store gain node reference for later access
+        gainNodeRef.current = gainNode;
 
         let interval: any;
+
         const processAudio = () => {
-            if(isMuted) { gainNode.gain.setTargetAtTime(0, ctx.currentTime, 0.01); return; }
+            const currentMute = isMutedRef.current;
+            const currentThresh = thresholdRef.current;
+            
+            if(currentMute) {
+                // Instant mute
+                gainNode.gain.setTargetAtTime(0, ctx.currentTime, 0.01);
+                return;
+            }
+
             const data = new Uint8Array(analyser.frequencyBinCount);
             analyser.getByteFrequencyData(data);
-            let sum = 0; for (let i = 0; i < data.length; i++) sum += data[i];
-            if ((sum / data.length) > threshold) { gainNode.gain.setTargetAtTime(1, ctx.currentTime, 0.05); } 
-            else { gainNode.gain.setTargetAtTime(0, ctx.currentTime, 0.2); }
+            let sum = 0;
+            for (let i = 0; i < data.length; i++) sum += data[i];
+            const average = sum / data.length;
+
+            if (average > currentThresh) {
+                // Open Gate
+                gainNode.gain.setTargetAtTime(1, ctx.currentTime, 0.05);
+            } else {
+                // Close Gate (softly)
+                gainNode.gain.setTargetAtTime(0, ctx.currentTime, 0.2);
+            }
         };
+
         interval = setInterval(processAudio, 50);
+        
+        // Create new stream, but THIS effect only runs when rawStream changes (device change)
+        // NOT when isMuted changes.
         const newTracks = [...destination.stream.getAudioTracks(), ...rawStream.getVideoTracks()];
         setProcessedStream(new MediaStream(newTracks));
 
-        return () => { clearInterval(interval); source.disconnect(); analyser.disconnect(); gainNode.disconnect(); };
-    }, [rawStream, threshold, isMuted]);
+        return () => {
+            clearInterval(interval);
+            source.disconnect();
+            analyser.disconnect();
+            gainNode.disconnect();
+        };
+    }, [rawStream]); // Removed isMuted and threshold from dependencies to prevent stream recreation
+
     return processedStream;
 };
 
@@ -198,14 +240,10 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
 });
 UserMediaComponent.displayName = "UserMediaComponent";
 
-// === FIX: REMOVED REACT.MEMO TO FORCE RE-RENDERS WHEN USER LIST UPDATES ===
 const GroupPeerWrapper = ({ peer, peerID, outputDeviceId, allUsers }: { peer: Peer.Instance; peerID: string; outputDeviceId?: string; allUsers: any[]; }) => {
   const [stream, setStream] = useState<MediaStream | null>(null);
   useEffect(() => { const onStream = (s: MediaStream) => setStream(s); peer.on("stream", onStream); if ((peer as any)._remoteStreams?.length) setStream((peer as any)._remoteStreams[0]); return () => { peer.off("stream", onStream); }; }, [peer]);
-  
-  // Find User Data (Reactive)
   const u = allUsers.find((x: any) => x.socketId === peerID);
-  
   return <UserMediaComponent stream={stream} isLocal={false} userId={peerID} userAvatar={u?.avatar} username={u?.username || "Connecting..."} outputDeviceId={outputDeviceId} isScreenShare={false}/>;
 };
 
@@ -273,6 +311,7 @@ export default function EcoTalkApp() {
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOn, setIsVideoOn] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
+  
   const processedStream = useProcessedStream(myStream, voiceThreshold, isMuted);
   const [muteKey, setMuteKey] = useState<string | null>(null);
   const [isRecordingKey, setIsRecordingKey] = useState(false);
@@ -304,10 +343,7 @@ export default function EcoTalkApp() {
     const savedKey = localStorage.getItem("eco_mute_key"); if(savedKey) setMuteKey(savedKey);
     const savedThreshold = localStorage.getItem("eco_voice_threshold"); if(savedThreshold) setVoiceThreshold(Number(savedThreshold));
     if (typeof navigator !== 'undefined' && navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) { navigator.mediaDevices.enumerateDevices().then((d) => { setAudioInputs(d.filter((x) => x.kind === "audioinput")); setAudioOutputs(d.filter((x) => x.kind === "audiooutput")); }).catch(() => {}); }
-    
-    // FIX: Force update on mount
     socket.emit("request_voice_states");
-    
     const unlock = () => { try { const ctx = getAudioContext(); if (ctx && ctx.state === "suspended") ctx.resume(); } catch (e) { console.log(e); } document.removeEventListener("click", unlock); };
     document.addEventListener("click", unlock); return () => { document.removeEventListener("click", unlock); };
   }, []);
@@ -321,17 +357,7 @@ export default function EcoTalkApp() {
     const onFriendAdded = (f: any) => { setMyFriends((p) => (p.find((x) => x.id === f.id) ? p : [...p, f])); if (tokenRef.current) fetchUserData(tokenRef.current); };
     const onFriendRemoved = (id: number) => { setMyFriends((p) => p.filter((f) => f.id !== id)); setActiveDM((prev: any) => (prev?.id === id ? null : prev)); };
     const onUserStatus = ({ userId, status, lastSeen }: any) => { setMyFriends((p) => p.map((f) => (f.id === userId ? { ...f, status, lastSeen } : f))); setCurrentServerMembers((p) => p.map((m) => (m.id === userId ? { ...m, status, lastSeen } : m))); };
-    
-    // FIX: Ensure key is always number to match sidebar rendering
-    const onVoiceUpdate = ({ roomId, users }: any) => { 
-        setVoiceStates((prev) => { 
-            const key = Number(roomId); 
-            // Avoid unnecessary re-renders
-            if (JSON.stringify(prev[key]) === JSON.stringify(users)) return prev; 
-            return { ...prev, [key]: users }; 
-        }); 
-    };
-    
+    const onVoiceUpdate = ({ roomId, users }: any) => { setVoiceStates((prev) => { const key = Number(roomId); if (JSON.stringify(prev[key]) === JSON.stringify(users)) return prev; return { ...prev, [key]: users }; }); };
     const onMsgUpdated = (u: any) => setMessages((p) => p.map((m) => (m.id === u.id ? u : m)));
     const onMsgDeleted = (id: number) => setMessages((p) => p.filter((m) => m.id !== id));
     const onTyping = (id: number | null | undefined) => { const me = currentUserRef.current?.id; if (!id || id === me) return; setTypingUsers((p) => Array.from(new Set([...p, id]))); };
@@ -348,7 +374,6 @@ export default function EcoTalkApp() {
     const streamToSend = processedStream;
     peersRef.current = []; setPeers([]);
     
-    // Request fresh list when joining
     socket.emit("request_voice_states");
 
     const handleAllUsers = (users: string[]) => { const fresh: { peerID: string; peer: Peer.Instance }[] = []; users.forEach((userID: string) => { if (userID === socket.id) return; if (peersRef.current.find((x) => x.peerID === userID)) return; const peer = createPeer(userID, socket.id!, streamToSend, socket); peersRef.current.push({ peerID: userID, peer }); fresh.push({ peerID: userID, peer }); }); if (fresh.length) setPeers((prev) => [...prev, ...fresh]); };
@@ -585,7 +610,15 @@ export default function EcoTalkApp() {
               <div className="mb-6"><h4 className="text-sm font-bold text-[var(--text-secondary)] mb-2 border-b border-[var(--border)] pb-1 flex items-center"><Palette size={14} className="mr-1"/> THEME</h4><div className="flex gap-2 mt-2"><button onClick={() => setTheme('minimal')} className={`flex-1 py-1 text-xs font-bold rounded border ${theme==='minimal'?'bg-gray-200 text-black border-black':'border-gray-300 text-gray-500'}`}>Minimal</button><button onClick={() => setTheme('neon')} className={`flex-1 py-1 text-xs font-bold rounded border ${theme==='neon'?'bg-slate-900 text-cyan-400 border-cyan-400':'border-gray-300 text-gray-500'}`}>Neon</button><button onClick={() => setTheme('vintage')} className={`flex-1 py-1 text-xs font-bold rounded border ${theme==='vintage'?'bg-amber-100 text-amber-900 border-amber-900':'border-gray-300 text-gray-500'}`}>Vintage</button></div></div>
               <div className="mb-6"><h4 className="text-sm font-bold text-[var(--text-secondary)] mb-2 border-b border-[var(--border)] pb-1">AUDIO SETTINGS</h4><label className="text-xs font-bold text-[var(--text-secondary)] block mb-1">MICROPHONE</label><select className="w-full p-2 border rounded mb-3 text-sm bg-[var(--bg-tertiary)]" value={selectedMicId} onChange={(e) => saveAudioSettings(e.target.value, selectedSpeakerId, enableNoiseSuppression, soundEnabled, voiceThreshold)}><option value="">Default</option>{audioInputs.map(d => <option key={d.deviceId} value={d.deviceId}>{d.label || `Microphone ${d.deviceId}`}</option>)}</select><label className="text-xs font-bold text-[var(--text-secondary)] block mb-1">SPEAKERS</label><select className="w-full p-2 border rounded text-sm bg-[var(--bg-tertiary)] mb-3" value={selectedSpeakerId} onChange={(e) => saveAudioSettings(selectedMicId, e.target.value, enableNoiseSuppression, soundEnabled, voiceThreshold)}><option value="">Default</option>{audioOutputs.map(d => <option key={d.deviceId} value={d.deviceId}>{d.label || `Speaker ${d.deviceId}`}</option>)}</select>
               <div className="flex items-center justify-between p-2 border rounded bg-[var(--bg-tertiary)] cursor-pointer mb-2" onClick={() => saveAudioSettings(selectedMicId, selectedSpeakerId, !enableNoiseSuppression, soundEnabled, voiceThreshold)}><div className="flex items-center text-sm font-bold">{enableNoiseSuppression && <Zap size={16} className="text-yellow-500 mr-2"/>}{!enableNoiseSuppression && <ZapOff size={16} className="text-gray-400 mr-2"/>} Noise Suppression (AI)</div><div className={`w-8 h-4 rounded-full relative transition-colors ${enableNoiseSuppression ? 'bg-green-500' : 'bg-gray-400'}`}><div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${enableNoiseSuppression ? 'left-4.5' : 'left-0.5'}`}></div></div></div>
-              <div className="mb-2"><div className="flex justify-between items-center mb-1"><label className="text-xs font-bold text-[var(--text-secondary)] flex items-center"><Sliders size={12} className="mr-1"/> VOICE ACTIVATION LEVEL</label><span className="text-xs font-mono">{voiceThreshold}%</span></div><input type="range" min="0" max="100" value={voiceThreshold} onChange={(e) => saveAudioSettings(selectedMicId, selectedSpeakerId, enableNoiseSuppression, soundEnabled, Number(e.target.value))} className="w-full h-2 bg-[var(--border)] rounded-lg appearance-none cursor-pointer"/></div>
+              
+              <div className="mb-2">
+                  <div className="flex justify-between items-center mb-1">
+                      <label className="text-xs font-bold text-[var(--text-secondary)] flex items-center"><Sliders size={12} className="mr-1"/> VOICE ACTIVATION LEVEL</label>
+                      <span className="text-xs font-mono">{voiceThreshold}%</span>
+                  </div>
+                  <input type="range" min="0" max="100" value={voiceThreshold} onChange={(e) => saveAudioSettings(selectedMicId, selectedSpeakerId, enableNoiseSuppression, soundEnabled, Number(e.target.value))} className="w-full h-2 bg-[var(--border)] rounded-lg appearance-none cursor-pointer"/>
+              </div>
+
               <div className="flex items-center justify-between p-2 border rounded bg-[var(--bg-tertiary)] cursor-pointer" onClick={() => saveAudioSettings(selectedMicId, selectedSpeakerId, enableNoiseSuppression, !soundEnabled, voiceThreshold)}><div className="flex items-center text-sm font-bold">{soundEnabled && <Volume2 size={16} className="text-blue-500 mr-2"/>}{!soundEnabled && <VolumeX size={16} className="text-gray-400 mr-2"/>} Sound Effects</div><div className={`w-8 h-4 rounded-full relative transition-colors ${soundEnabled ? 'bg-blue-500' : 'bg-gray-400'}`}><div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${soundEnabled ? 'left-4.5' : 'left-0.5'}`}></div></div></div>
               <div className="mt-4 border-t border-[var(--border)] pt-4"><h4 className="text-sm font-bold text-[var(--text-secondary)] mb-2 flex items-center"><Keyboard size={14} className="mr-1"/> HOTKEYS</h4><div className="flex items-center justify-between p-2 border rounded bg-[var(--bg-tertiary)]"><span className="text-sm font-bold">Toggle Mute</span><button onClick={() => setIsRecordingKey(true)} className={`px-3 py-1 rounded text-xs font-bold transition-all ${isRecordingKey ? 'bg-red-500 text-white animate-pulse' : (muteKey ? 'bg-blue-600 text-white' : 'bg-gray-400 text-white')}`}>{isRecordingKey ? "Press any key..." : (muteKey || "Click to Bind")}</button></div></div>
               <div className="mt-4 flex items-center gap-2"><button onClick={toggleMicTest} className={`flex-1 py-2 rounded text-sm font-bold transition-colors ${isTestingMic ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-gray-100 text-gray-900 hover:bg-gray-200'}`}>{isTestingMic ? "Stop Test" : "Check Microphone"}</button><audio ref={testAudioRef} hidden />{isTestingMic && <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse"></div>}</div></div>
