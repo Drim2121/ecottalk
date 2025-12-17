@@ -1,52 +1,43 @@
-// Это ваш файл схемы Prisma.
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite" // Используем SQLite (файл dev.db)
+  provider = "sqlite"
   url      = "file:./dev.db"
 }
 
-// --- ПОЛЬЗОВАТЕЛЬ ---
 model User {
   id          Int       @id @default(autoincrement())
   username    String    @unique
   password    String
-  avatar      String?   // Ссылка на аватарку
-  status      String    @default("offline") // online, offline
+  avatar      String?
+  status      String    @default("offline")
   lastSeen    DateTime?
-
-  // Список друзей хранится как JSON массив ID "[1, 2, 5]"
   friendsData String?
 
-  // Связи
-  servers   Member[]   // В каких серверах состоит
-  owned     Server[]   // Какие сервера создал
-  messages  Message[]  // Отправленные сообщения
-  reactions Reaction[] // Поставленные реакции
+  servers   Member[]
+  owned     Server[]
+  messages  Message[]
+  reactions Reaction[]
 
-  // Уведомления (исправлены названия полей для связи)
   sentNotif Notification[] @relation("Sender")
   recvNotif Notification[] @relation("Receiver")
 }
 
-// --- СЕРВЕР ---
 model Server {
   id          Int     @id @default(autoincrement())
   name        String
   icon        String?
   description String?
+  ownerId     Int
+  owner       User    @relation(fields: [ownerId], references: [id])
 
-  ownerId Int
-  owner   User @relation(fields: [ownerId], references: [id])
-
-  channels  Channel[]
-  members   Member[]
-  invites   Notification[] // Приглашения на этот сервер
+  channels Channel[]
+  members  Member[]
+  invites  Notification[]
 }
 
-// --- УЧАСТНИК СЕРВЕРА ---
 model Member {
   id       Int @id @default(autoincrement())
   userId   Int
@@ -56,70 +47,51 @@ model Member {
   server Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
 }
 
-// --- КАНАЛ ---
 model Channel {
-  id   Int    @id @default(autoincrement())
-  name String
-  type String @default("text") // "text" или "voice"
-
+  id       Int    @id @default(autoincrement())
+  name     String
+  type     String @default("text")
   serverId Int
   server   Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
 
-  messages Message[] // Сообщения в этом канале
+  messages Message[]
 }
 
-// --- СООБЩЕНИЕ ---
 model Message {
-  id       Int     @id @default(autoincrement())
-  content  String? // Текст сообщения
-  imageUrl String? // Ссылка на картинку
-  type     String  @default("text") // "text", "image", "call"
-
-  isEdited Boolean @default(false)
-
-  author   String // Имя автора для быстрого доступа
-  userId   Int
-  user     User   @relation(fields: [userId], references: [id])
-
-  // Если сообщение в канале сервера
+  id        Int      @id @default(autoincrement())
+  content   String?
+  imageUrl  String?
+  type      String   @default("text")
+  isEdited  Boolean  @default(false)
+  author    String
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
   channelId Int?
   channel   Channel? @relation(fields: [channelId], references: [id], onDelete: Cascade)
-
-  // Если сообщение в ЛС (название комнаты, например "dm_1_2")
-  dmRoom String?
-
+  dmRoom    String?
   createdAt DateTime @default(now())
 
   reactions Reaction[]
 }
 
-// --- РЕАКЦИЯ ---
 model Reaction {
-  id    Int    @id @default(autoincrement())
-  emoji String // Сам смайлик
-
-  userId Int
-  user   User @relation(fields: [userId], references: [id])
-
+  id        Int     @id @default(autoincrement())
+  emoji     String
+  userId    Int
+  user      User    @relation(fields: [userId], references: [id])
   messageId Int
   message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
 }
 
-// --- УВЕДОМЛЕНИЕ ---
 model Notification {
-  id     Int    @id @default(autoincrement())
-  type   String // "FRIEND_REQUEST", "SERVER_INVITE"
-  status String @default("PENDING") // "ACCEPTED", "REJECTED"
-
-  senderId Int
-  sender   User @relation("Sender", fields: [senderId], references: [id])
-
+  id         Int      @id @default(autoincrement())
+  type       String
+  status     String   @default("PENDING")
+  senderId   Int
+  sender     User     @relation("Sender", fields: [senderId], references: [id])
   receiverId Int
-  receiver   User @relation("Receiver", fields: [receiverId], references: [id])
-
-  // Опционально: ссылка на сервер (для приглашений)
-  serverId Int?
-  server   Server? @relation(fields: [serverId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
+  receiver   User     @relation("Receiver", fields: [receiverId], references: [id])
+  serverId   Int?
+  server     Server?  @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
 }
