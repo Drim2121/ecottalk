@@ -5,7 +5,7 @@ import {
   Hash, Send, Plus, MessageSquare, LogOut, Paperclip, UserPlus, PhoneOff, Bell,
   Check, X, Settings, Trash2, UserMinus, Users, Volume2, Mic, MicOff, Smile, Edit2,
   Palette, Zap, ZapOff, Video, VideoOff, Monitor, MonitorOff, Volume1, VolumeX, Camera,
-  Maximize, Minimize // Добавлена иконка Minimize
+  Maximize, Minimize
 } from "lucide-react";
 import io, { Socket } from "socket.io-client";
 import Peer from "simple-peer";
@@ -27,7 +27,6 @@ const THEME_STYLES = `
   :root[data-theme="neon"] { --bg-primary: #0f172a; --bg-secondary: #1e293b; --bg-tertiary: #334155; --text-primary: #f8fafc; --text-secondary: #94a3b8; --accent: #38bdf8; --border: #1e293b; --font-family: 'Courier New', monospace; }
   :root[data-theme="vintage"] { --bg-primary: #fffbeb; --bg-secondary: #fef3c7; --bg-tertiary: #fde68a; --text-primary: #78350f; --text-secondary: #92400e; --accent: #d97706; --border: #fcd34d; --font-family: 'Georgia', serif; }
   body, div, input, textarea, video { transition: background-color 0.3s ease, color 0.3s ease; }
-  /* Убираем стандартные контролы видео в полноэкранном режиме на некоторых браузерах */
   video::-webkit-media-controls { display:none !important; }
 `;
 
@@ -93,7 +92,7 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
   const isSpeaking = useAudioActivity(stream);
   const [hasVideo, setHasVideo] = useState(false);
   const [isAudioEnabled, setIsAudioEnabled] = useState(true);
-  const [isFullscreen, setIsFullscreen] = useState(false); // Track fullscreen state
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
     if(!stream) { setHasVideo(false); setIsAudioEnabled(false); return; }
@@ -108,11 +107,8 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
     return () => clearInterval(interval);
   }, [stream]);
 
-  // Listen for fullscreen changes
   useEffect(() => {
-      const handleFsChange = () => {
-          setIsFullscreen(!!document.fullscreenElement);
-      };
+      const handleFsChange = () => { setIsFullscreen(!!document.fullscreenElement); };
       document.addEventListener("fullscreenchange", handleFsChange);
       return () => document.removeEventListener("fullscreenchange", handleFsChange);
   }, []);
@@ -122,25 +118,15 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
 
   const toggleFullscreen = () => {
       if (!containerRef.current) return;
-      if (!document.fullscreenElement) {
-          containerRef.current.requestFullscreen().catch(err => console.log(err));
-      } else {
-          document.exitFullscreen();
-      }
+      if (!document.fullscreenElement) { containerRef.current.requestFullscreen().catch(err => console.log(err)); } else { document.exitFullscreen(); }
   };
 
-  // Determine styles based on state
-  // If Screen Share OR Fullscreen -> Use 'object-contain' to see everything without cropping
   const objectFitClass = (isScreenShare || isFullscreen) ? 'object-contain' : 'object-cover';
-  // If Fullscreen -> No border radius, background black
-  const containerClass = isFullscreen 
-      ? 'fixed inset-0 z-50 bg-black rounded-none flex flex-col items-center justify-center' 
-      : 'flex flex-col items-center justify-center p-2 h-full w-full relative bg-black/20 rounded-xl overflow-hidden border border-white/10 group transition-all';
+  const containerClass = isFullscreen ? 'fixed inset-0 z-50 bg-black rounded-none flex flex-col items-center justify-center' : 'flex flex-col items-center justify-center p-2 h-full w-full relative bg-black/20 rounded-xl overflow-hidden border border-white/10 group transition-all';
 
   return (
     <div ref={containerRef} className={containerClass}>
       <video ref={videoRef} autoPlay playsInline muted={isLocal} className={`absolute inset-0 w-full h-full ${objectFitClass} transition-all duration-300 ${hasVideo ? 'opacity-100' : 'opacity-0'} ${isLocal && !isScreenShare ? 'scale-x-[-1]' : ''}`} />
-      
       {!hasVideo && (
         <div className="z-10 flex flex-col items-center">
             <div className={`relative w-24 h-24 rounded-full p-1 transition-all ${isSpeaking ? "bg-green-500 shadow-lg scale-110" : "bg-gray-700"}`}>
@@ -148,22 +134,9 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
             </div>
         </div>
       )}
-
-      {/* MUTE INDICATOR */}
-      {!isAudioEnabled && (
-          <div className="absolute top-4 right-4 bg-red-600 p-2 rounded-full shadow-lg z-20 animate-in fade-in zoom-in duration-200">
-              <MicOff size={16} className="text-white" />
-          </div>
-      )}
-
-      {/* FULLSCREEN BTN */}
-      <button onClick={toggleFullscreen} className="absolute bottom-10 right-4 p-2 bg-black/50 hover:bg-black/80 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity z-20">
-        {isFullscreen ? <Minimize size={20}/> : <Maximize size={20}/>}
-      </button>
-
-      <div className={`absolute bottom-4 left-4 z-20 text-white font-bold text-sm bg-black/60 px-3 py-1 rounded backdrop-blur-sm flex items-center gap-1 ${isFullscreen ? 'scale-125 origin-bottom-left' : ''}`}>
-        {username || "User"} {isLocal && "(You)"}
-      </div>
+      {!isAudioEnabled && (<div className="absolute top-4 right-4 bg-red-600 p-2 rounded-full shadow-lg z-20 animate-in fade-in zoom-in duration-200"><MicOff size={16} className="text-white" /></div>)}
+      <button onClick={toggleFullscreen} className="absolute bottom-10 right-4 p-2 bg-black/50 hover:bg-black/80 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity z-20">{isFullscreen ? <Minimize size={20}/> : <Maximize size={20}/>}</button>
+      <div className={`absolute bottom-4 left-4 z-20 text-white font-bold text-sm bg-black/60 px-3 py-1 rounded backdrop-blur-sm flex items-center gap-1 ${isFullscreen ? 'scale-125 origin-bottom-left' : ''}`}>{username || "User"} {isLocal && "(You)"}</div>
     </div>
   );
 });
@@ -195,7 +168,7 @@ export default function EcoTalkApp() {
   const [voiceStates, setVoiceStates] = useState<Record<number, any[]>>({});
   const [activeServerId, setActiveServerId] = useState<number | null>(null);
   const [activeServerData, setActiveServerData] = useState<any>(null);
-  const [activeChannel, setActiveChannel] = useState<any>(null);
+  const [activeChannel, setActiveChannel] = useState<any>(null); // MAIN VIEW
   const [activeDM, setActiveDM] = useState<any>(null);
   const activeDMRef = useRef<any>(null);
   const [showNotifPanel, setShowNotifPanel] = useState(false);
@@ -233,46 +206,38 @@ export default function EcoTalkApp() {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [isTestingMic, setIsTestingMic] = useState(false);
   const testAudioRef = useRef<HTMLAudioElement>(null);
-  const [activeVoiceChannel, setActiveVoiceChannel] = useState<number | null>(null);
+  
+  // VOICE STATE
+  const [activeVoiceChannel, setActiveVoiceChannel] = useState<number | null>(null); // VOICE CONNECTION
   const [myStream, setMyStream] = useState<MediaStream | null>(null);
   const [peers, setPeers] = useState<{ peerID: string; peer: Peer.Instance }[]>([]);
   const peersRef = useRef<{ peerID: string; peer: Peer.Instance }[]>([]);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOn, setIsVideoOn] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
+  
   const lastTypingTime = useRef<number>(0);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const savedTheme = localStorage.getItem("eco_theme");
-    if (savedTheme) {
-        setTheme(savedTheme);
-        document.documentElement.setAttribute('data-theme', savedTheme);
-    }
+    if (savedTheme) { setTheme(savedTheme); document.documentElement.setAttribute('data-theme', savedTheme); }
   }, []);
 
-  const playSound = (type: 'msg' | 'join' | 'leave' | 'click') => {
-    if (soundEnabled) playSoundEffect(type);
-  };
-
+  const playSound = (type: 'msg' | 'join' | 'leave' | 'click') => { if (soundEnabled) playSoundEffect(type); };
   const formatLastSeen = (d: string) => { if (!d) return "Offline"; const diff = Math.floor((Date.now() - new Date(d).getTime()) / 60000); if (diff < 1) return "Just now"; if (diff < 60) return `${diff}m ago`; const hours = Math.floor(diff / 60); return hours < 24 ? `${hours}h ago` : new Date(d).toLocaleDateString(); };
   const formatDateHeader = (d: string) => { const date = new Date(d); const now = new Date(); const yesterday = new Date(); yesterday.setDate(now.getDate() - 1); if (date.toDateString() === now.toDateString()) return "Today"; if (date.toDateString() === yesterday.toDateString()) return "Yesterday"; return date.toLocaleDateString(); };
 
   useEffect(() => { tokenRef.current = token; }, [token]);
   useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
   useEffect(() => { activeDMRef.current = activeDM; }, [activeDM]);
-  
-  useEffect(() => { 
-      document.documentElement.setAttribute('data-theme', theme); 
-      localStorage.setItem('eco_theme', theme); 
-  }, [theme]);
+  useEffect(() => { document.documentElement.setAttribute('data-theme', theme); localStorage.setItem('eco_theme', theme); }, [theme]);
 
   useEffect(() => {
     setMounted(true); const storedToken = localStorage.getItem("eco_token"); if (storedToken) { setToken(storedToken); fetchUserData(storedToken); }
     const savedMic = localStorage.getItem("eco_mic_id"); const savedSpeaker = localStorage.getItem("eco_speaker_id"); if (savedMic) setSelectedMicId(savedMic); if (savedSpeaker) setSelectedSpeakerId(savedSpeaker);
     const savedNC = localStorage.getItem("eco_nc"); if (savedNC !== null) setEnableNoiseSuppression(savedNC === "true");
     const savedSound = localStorage.getItem("eco_sound"); if (savedSound !== null) setSoundEnabled(savedSound === "true");
-
     if (typeof navigator !== 'undefined' && navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) { navigator.mediaDevices.enumerateDevices().then((d) => { setAudioInputs(d.filter((x) => x.kind === "audioinput")); setAudioOutputs(d.filter((x) => x.kind === "audiooutput")); }).catch(() => {}); }
     socket.emit("request_voice_states");
     const unlock = () => { try { const ctx = getAudioContext(); if (ctx && ctx.state === "suspended") ctx.resume(); } catch (e) { console.log(e); } document.removeEventListener("click", unlock); };
@@ -357,16 +322,42 @@ export default function EcoTalkApp() {
   const selectServer = async (serverId: number) => { if (!token) return; setActiveServerId(serverId); setActiveDM(null); if (activeVoiceChannel) leaveVoiceChannel(); const res = await fetch(`${SOCKET_URL}/api/server/${serverId}`, { headers: { Authorization: token } }); const data = await res.json(); setActiveServerData(data); setCurrentServerMembers(data.members.map((m: any) => m.user)); setMyServers((p) => p.map((s) => (s.id === serverId ? data : s))); if (data.channels.length > 0) selectChannel(data.channels[0]); playSound("click"); };
 
   const getMediaConstraints = (video: boolean) => ({ video: video ? { width: 640, height: 480, facingMode: "user" } : false, audio: { deviceId: selectedMicId ? { exact: selectedMicId } : undefined, echoCancellation: true, noiseSuppression: enableNoiseSuppression, autoGainControl: true } });
+  
+  // === MODIFIED SELECT CHANNEL (PERSISTENT VOICE) ===
   const selectChannel = (c: any) => {
-    if (activeVoiceChannel === c.id) return; if (activeVoiceChannel && c.type !== "voice") leaveVoiceChannel(); setActiveChannel(c);
-    if (c.type === "voice") {
-      setActiveVoiceChannel(c.id); playSound("join"); // JOIN SOUND
-      navigator.mediaDevices.getUserMedia(getMediaConstraints(false)).then((s) => { setMyStream(s); setIsMuted(false); setIsVideoOn(false); setIsScreenSharing(false); }).catch((e) => { console.error(e); alert("Mic Error"); setActiveVoiceChannel(null); });
-    } else { setMessages([]); socket.emit("join_channel", { channelId: c.id }); playSound("click"); }
+    // If clicking the same voice channel, just focus it
+    if (activeVoiceChannel === c.id) { setActiveChannel(c); return; }
+    
+    // If clicking a NEW voice channel, leave old one first
+    if (c.type === 'voice') {
+        if (activeVoiceChannel && activeVoiceChannel !== c.id) leaveVoiceChannel();
+        setActiveChannel(c);
+        setActiveVoiceChannel(c.id); playSound("join");
+        navigator.mediaDevices.getUserMedia(getMediaConstraints(false)).then((s) => { setMyStream(s); setIsMuted(false); setIsVideoOn(false); setIsScreenSharing(false); }).catch((e) => { console.error(e); alert("Mic Error"); setActiveVoiceChannel(null); });
+    } else {
+        // If clicking Text Channel, just switch view, DON'T leave voice
+        setActiveChannel(c); 
+        setMessages([]); 
+        socket.emit("join_channel", { channelId: c.id }); 
+        playSound("click"); 
+    }
   };
+
   const toggleVideo = async () => { if (!activeVoiceChannel) return; playSound("click"); if (isVideoOn || isScreenSharing) { const stream = await navigator.mediaDevices.getUserMedia(getMediaConstraints(false)); if (myStream) myStream.getTracks().forEach(t => t.stop()); setMyStream(stream); setIsVideoOn(false); setIsScreenSharing(false); } else { try { const stream = await navigator.mediaDevices.getUserMedia(getMediaConstraints(true)); if (myStream) myStream.getTracks().forEach(t => t.stop()); setMyStream(stream); setIsVideoOn(true); setIsScreenSharing(false); } catch (e) { console.error(e); alert("Could not start video"); } } };
   const toggleScreenShare = async () => { if (!activeVoiceChannel) return; playSound("click"); if (isScreenSharing) { const stream = await navigator.mediaDevices.getUserMedia(getMediaConstraints(false)); if (myStream) myStream.getTracks().forEach(t => t.stop()); setMyStream(stream); setIsScreenSharing(false); setIsVideoOn(false); } else { try { const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }); const micStream = await navigator.mediaDevices.getUserMedia({ audio: getMediaConstraints(false).audio }); const tracks = [ ...screenStream.getVideoTracks(), ...micStream.getAudioTracks() ]; const combinedStream = new MediaStream(tracks); screenStream.getVideoTracks()[0].onended = () => { toggleScreenShare(); }; if (myStream) myStream.getTracks().forEach(t => t.stop()); setMyStream(combinedStream); setIsScreenSharing(true); setIsVideoOn(false); } catch(e) { console.log("Screen share cancelled"); } } };
-  const leaveVoiceChannel = () => { if (myStream) myStream.getTracks().forEach((track) => track.stop()); setMyStream(null); setActiveVoiceChannel(null); setIsVideoOn(false); setIsScreenSharing(false); playSound("leave"); if (activeServerId) { const server = myServers.find((s) => s.id === activeServerId); const firstText = server?.channels?.find((c: any) => c.type === "text"); if (firstText) { setActiveChannel(firstText); setMessages([]); socket.emit("join_channel", { channelId: firstText.id }); } else { setActiveChannel(null); } } else { setActiveChannel(null); } };
+  
+  const leaveVoiceChannel = () => { 
+      if (myStream) myStream.getTracks().forEach((track) => track.stop()); 
+      setMyStream(null); setActiveVoiceChannel(null); setIsVideoOn(false); setIsScreenSharing(false); 
+      playSound("leave"); 
+      // Don't change activeChannel if it's text, only if it was the voice channel view
+      if (activeChannel?.id === activeVoiceChannel) {
+          const server = myServers.find((s) => s.id === activeServerId); 
+          const firstText = server?.channels?.find((c: any) => c.type === "text"); 
+          if (firstText) selectChannel(firstText);
+      }
+  };
+
   const toggleMute = () => { if (!myStream) return; playSound("click"); const track = myStream.getAudioTracks()[0]; if (!track) return; track.enabled = !track.enabled; setIsMuted(!track.enabled); };
   const selectDM = (friend: any) => { if (friend.id === currentUser?.id) return; setActiveServerId(null); if (activeVoiceChannel) leaveVoiceChannel(); setActiveDM(friend); setActiveChannel(null); setMessages([]); const me = currentUser; if (!me) return; const ids = [me.id, friend.id].sort(); socket.emit("join_dm", { roomName: `dm_${ids[0]}_${ids[1]}` }); playSound("click"); };
   const sendMessage = () => { const me = currentUser; if (!me || !inputText) return; socket.emit("send_message", { content: inputText, author: me.username, userId: me.id, channelId: activeServerId ? activeChannel?.id : null, dmRoom: activeDM ? `dm_${[me.id, activeDM.id].sort().join("_")}` : null, }); setInputText(""); const room = activeServerId ? `channel_${activeChannel?.id}` : activeDM ? `dm_${[me.id, activeDM.id].sort().join("_")}` : null; if (room) socket.emit("stop_typing", { room }); };
@@ -397,9 +388,48 @@ export default function EcoTalkApp() {
       <div className={`flex w-full h-full`}>
         <div className="w-18 bg-gray-900 flex flex-col items-center py-4 space-y-3 z-20 text-white"><div onClick={() => setActiveServerId(null)} className={`w-12 h-12 rounded-2xl flex items-center justify-center cursor-pointer ${activeServerId===null ? 'bg-indigo-500 text-white' : 'bg-gray-700 text-gray-200 hover:bg-green-600'}`}><MessageSquare size={24}/></div><div className="w-8 h-0.5 bg-gray-700 rounded"></div>{myServers.map(s => <div key={s.id} onClick={() => selectServer(s.id)} className={`w-12 h-12 rounded-full flex items-center justify-center cursor-pointer font-bold overflow-hidden ${activeServerId===s.id ? 'rounded-xl bg-green-500 text-white' : 'bg-gray-700 text-gray-200'}`} title={s.name}>{s.icon && s.icon.startsWith('data:') ? <img src={s.icon} className="w-full h-full object-cover"/> : s.name[0]}</div>)}<div onClick={() => setShowCreateServer(true)} className="w-12 h-12 bg-gray-800 rounded-full flex items-center justify-center text-green-400 cursor-pointer"><Plus size={24}/></div></div>
         
-        <div className="w-60 bg-[var(--bg-secondary)] border-r border-[var(--border)] flex flex-col transition-colors">
+        <div className="w-60 bg-[var(--bg-secondary)] border-r border-[var(--border)] flex flex-col transition-colors relative">
           <div className="h-12 border-b border-[var(--border)] flex items-center px-4 font-bold text-[var(--text-primary)] justify-between"><div className="truncate w-32">{activeServerId ? myServers.find(s=>s.id===activeServerId)?.name : 'Direct Messages'}</div><div className="flex gap-2 items-center">{activeServerId && activeServerData?.ownerId === currentUser.id && <Settings size={16} className="cursor-pointer hover:text-[var(--accent)]" onClick={openServerSettings}/>}{!activeServerId && <div className="text-[var(--text-secondary)] hover:text-[var(--accent)] cursor-pointer" onClick={() => setShowAddFriend(true)}><Plus size={18}/></div>}{activeServerId && <UserPlus size={18} className="cursor-pointer hover:text-[var(--accent)]" onClick={() => setShowInvite(true)} />}<div className="relative" onClick={() => setShowNotifPanel(!showNotifPanel)}><Bell size={18} className={`cursor-pointer ${notifications.length > 0 ? 'text-[var(--accent)] animate-pulse' : 'text-[var(--text-secondary)]'}`}/>{notifications.length > 0 && <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white" />}</div></div>{showNotifPanel && <div className="absolute top-12 left-20 w-64 bg-[var(--bg-primary)] border border-[var(--border)] shadow-xl rounded-b-xl z-50 max-h-80 overflow-y-auto text-[var(--text-primary)]"><div className="p-2 text-xs font-bold text-[var(--text-secondary)] border-b">NOTIFICATIONS</div>{notifications.length===0?<div className="p-4 text-center text-sm text-gray-400">No new notifications</div>:notifications.map(n=><div key={n.id} className="p-3 border-b hover:bg-[var(--bg-secondary)] transition-colors"><div className="text-sm mb-2"><span className="font-bold">{n.sender.username}</span> {n.type}</div><div className="flex gap-2"><button onClick={()=>handleNotification(n.id, "ACCEPT")} className="flex-1 bg-green-500 text-white py-1 rounded text-xs font-bold flex items-center justify-center"><Check size={12}/> Accept</button><button onClick={()=>handleNotification(n.id, "DECLINE")} className="flex-1 bg-gray-200 text-gray-600 py-1 rounded text-xs font-bold flex items-center justify-center"><X size={12}/> Decline</button></div></div>)}</div>}</div>
-          <div className="flex-1 p-2 overflow-y-auto">{activeServerId ? (<><div className="flex justify-between px-2 mb-2 text-xs font-bold text-[var(--text-secondary)]"><span>TEXT</span><Plus size={14} className="cursor-pointer" onClick={()=>{setChannelType('text'); setShowCreateChannel(true)}}/></div>{myServers.find(s=>s.id===activeServerId)?.channels?.filter((c:any)=>c.type==='text').map((c:any) => <div key={c.id} onClick={()=>selectChannel(c)} className={`flex items-center px-2 py-1 rounded mb-1 cursor-pointer ${activeChannel?.id===c.id ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)] font-bold' : 'text-[var(--text-secondary)]'}`}><Hash size={16} className="mr-1"/> {c.name}</div>)}<div className="flex justify-between px-2 mb-2 mt-4 text-xs font-bold text-[var(--text-secondary)]"><span>VOICE</span><Plus size={14} className="cursor-pointer" onClick={()=>{setChannelType('voice'); setShowCreateChannel(true)}}/></div>{myServers.find(s=>s.id===activeServerId)?.channels?.filter((c:any)=>c.type==='voice').map((c:any) => (<div key={c.id} className="group relative"><div onClick={()=>selectChannel(c)} className={`flex items-center px-2 py-1 rounded mb-1 cursor-pointer justify-between ${activeChannel?.id===c.id ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)] font-bold' : 'text-[var(--text-secondary)]'}`}><div className="flex items-center"><Volume2 size={16} className="mr-1"/> {c.name}</div>{activeServerData?.ownerId === currentUser.id && <Settings size={12} className="opacity-0 group-hover:opacity-100 hover:text-[var(--accent)]" onClick={(e)=>openChannelSettings(e, c)}/>}</div>{voiceStates[c.id]?.map((u: any) => <div key={u.socketId} className="pl-6 flex items-center text-[var(--text-secondary)] text-xs py-1"><img src={u.avatar} className="w-4 h-4 rounded-full mr-2"/>{u.username}</div>)}</div>))}</>) : (myFriends.map(f => <div key={f.id} onClick={()=>selectDM(f)} className={`flex items-center p-2 rounded cursor-pointer ${activeDM?.id===f.id?'bg-[var(--bg-tertiary)]':''}`}><div className="relative w-8 h-8 flex-shrink-0 mr-2"><img src={f.avatar} className="rounded-full w-full h-full object-cover"/><div className={`absolute bottom-0 right-0 w-2.5 h-2.5 border-2 border-white rounded-full ${f.status==='online'?'bg-green-500':'bg-gray-400'}`}></div></div><div className="flex-1"><span className="block text-sm font-medium">{f.username}</span></div><Trash2 size={14} className="text-[var(--text-secondary)] hover:text-red-500" onClick={(e) => { e.stopPropagation(); removeFriend(f.id); }} /></div>))}</div>
+          <div className="flex-1 p-2 overflow-y-auto pb-16">
+            {activeServerId ? (
+              <>
+                <div className="flex justify-between px-2 mb-2 text-xs font-bold text-[var(--text-secondary)]"><span>TEXT</span><Plus size={14} className="cursor-pointer" onClick={()=>{setChannelType('text'); setShowCreateChannel(true)}}/></div>
+                {myServers.find(s=>s.id===activeServerId)?.channels?.filter((c:any)=>c.type==='text').map((c:any) => (
+                    <div key={c.id} onClick={()=>selectChannel(c)} className={`group flex items-center justify-between px-2 py-1 rounded mb-1 cursor-pointer ${activeChannel?.id===c.id ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)] font-bold' : 'text-[var(--text-secondary)]'}`}>
+                        <div className="flex items-center"><Hash size={16} className="mr-1"/> {c.name}</div>
+                        {activeServerData?.ownerId === currentUser.id && <Settings size={12} className="opacity-0 group-hover:opacity-100 hover:text-[var(--accent)]" onClick={(e)=>openChannelSettings(e, c)}/>}
+                    </div>
+                ))}
+                <div className="flex justify-between px-2 mb-2 mt-4 text-xs font-bold text-[var(--text-secondary)]"><span>VOICE</span><Plus size={14} className="cursor-pointer" onClick={()=>{setChannelType('voice'); setShowCreateChannel(true)}}/></div>
+                {myServers.find(s=>s.id===activeServerId)?.channels?.filter((c:any)=>c.type==='voice').map((c:any) => (
+                   <div key={c.id} className="group relative">
+                      <div onClick={()=>selectChannel(c)} className={`flex items-center px-2 py-1 rounded mb-1 cursor-pointer justify-between ${activeChannel?.id===c.id ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)] font-bold' : (activeVoiceChannel === c.id ? 'text-green-600 font-bold' : 'text-[var(--text-secondary)]')}`}>
+                          <div className="flex items-center"><Volume2 size={16} className="mr-1"/> {c.name}</div>
+                          {activeServerData?.ownerId === currentUser.id && <Settings size={12} className="opacity-0 group-hover:opacity-100 hover:text-[var(--accent)]" onClick={(e)=>openChannelSettings(e, c)}/>}
+                      </div>
+                      {voiceStates[c.id]?.map((u: any) => <div key={u.socketId} className="pl-6 flex items-center text-[var(--text-secondary)] text-xs py-1"><img src={u.avatar} className="w-4 h-4 rounded-full mr-2"/>{u.username}</div>)}
+                   </div>
+                ))}
+              </>
+            ) : (
+               myFriends.map(f => <div key={f.id} onClick={()=>selectDM(f)} className={`flex items-center p-2 rounded cursor-pointer ${activeDM?.id===f.id?'bg-[var(--bg-tertiary)]':''}`}><div className="relative w-8 h-8 flex-shrink-0 mr-2"><img src={f.avatar} className="rounded-full w-full h-full object-cover"/><div className={`absolute bottom-0 right-0 w-2.5 h-2.5 border-2 border-white rounded-full ${f.status==='online'?'bg-green-500':'bg-gray-400'}`}></div></div><div className="flex-1"><span className="block text-sm font-medium">{f.username}</span></div><Trash2 size={14} className="text-[var(--text-secondary)] hover:text-red-500" onClick={(e) => { e.stopPropagation(); removeFriend(f.id); }} /></div>)
+            )}
+          </div>
+          
+          {/* === VOICE CONNECTED PANEL === */}
+          {activeVoiceChannel && (
+              <div className="absolute bottom-12 left-0 right-0 bg-green-900/90 text-white p-2 border-t border-green-700 flex items-center justify-between z-20">
+                  <div className="flex flex-col text-xs px-2 truncate">
+                      <span className="font-bold text-green-100">Voice Connected</span>
+                      <span className="text-green-300 truncate">/ {myServers.find(s=>s.id===activeServerId)?.channels.find((c:any)=>c.id===activeVoiceChannel)?.name}</span>
+                  </div>
+                  <div className="flex gap-1">
+                      <button onClick={toggleMute} className="p-1.5 rounded hover:bg-black/20">{isMuted ? <MicOff size={16}/> : <Mic size={16}/>}</button>
+                      <button onClick={leaveVoiceChannel} className="p-1.5 rounded hover:bg-black/20"><PhoneOff size={16}/></button>
+                  </div>
+              </div>
+          )}
+
           <div className="p-2 border-t border-[var(--border)] flex items-center bg-[var(--bg-tertiary)]"><img src={currentUser?.avatar} className="w-8 h-8 rounded-full mr-2"/><div className="font-bold text-sm">{currentUser?.username}</div><Settings size={16} className="ml-auto mr-2 cursor-pointer text-[var(--text-secondary)] hover:text-[var(--text-primary)]" onClick={openUserProfile}/><LogOut size={16} className="cursor-pointer text-red-500" onClick={handleLogout}/></div>
         </div>
 
@@ -418,33 +448,18 @@ export default function EcoTalkApp() {
           <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
             <div className="bg-[var(--bg-primary)] p-6 rounded-xl w-96 shadow-2xl overflow-y-auto max-h-[80vh] border border-[var(--border)] text-[var(--text-primary)]">
               <h3 className="font-bold text-xl mb-4">Profile</h3>
-              
               <div className="flex flex-col items-center mb-6">
                 <div className="w-24 h-24 rounded-full bg-gray-200 overflow-hidden mb-2 relative group cursor-pointer" onClick={() => avatarInputRef.current?.click()}>
                    <img src={currentUser?.avatar} className="w-full h-full object-cover"/>
-                   <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-full">
-                       <Camera className="text-white"/>
-                   </div>
+                   <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-full"><Camera className="text-white"/></div>
                 </div>
                 <input type="file" ref={avatarInputRef} hidden accept="image/*" onChange={(e) => handleAvatarUpload(e, true)} />
                 <input className="text-center font-bold text-lg border-b border-transparent hover:border-gray-300 focus:border-green-500 outline-none bg-transparent" value={editUserName} onChange={e=>setEditUserName(e.target.value)}/>
               </div>
-
               <div className="mb-6"><h4 className="text-sm font-bold text-[var(--text-secondary)] mb-2 border-b border-[var(--border)] pb-1 flex items-center"><Palette size={14} className="mr-1"/> THEME</h4><div className="flex gap-2 mt-2"><button onClick={() => setTheme('minimal')} className={`flex-1 py-1 text-xs font-bold rounded border ${theme==='minimal'?'bg-gray-200 text-black border-black':'border-gray-300 text-gray-500'}`}>Minimal</button><button onClick={() => setTheme('neon')} className={`flex-1 py-1 text-xs font-bold rounded border ${theme==='neon'?'bg-slate-900 text-cyan-400 border-cyan-400':'border-gray-300 text-gray-500'}`}>Neon</button><button onClick={() => setTheme('vintage')} className={`flex-1 py-1 text-xs font-bold rounded border ${theme==='vintage'?'bg-amber-100 text-amber-900 border-amber-900':'border-gray-300 text-gray-500'}`}>Vintage</button></div></div>
               <div className="mb-6"><h4 className="text-sm font-bold text-[var(--text-secondary)] mb-2 border-b border-[var(--border)] pb-1">AUDIO SETTINGS</h4><label className="text-xs font-bold text-[var(--text-secondary)] block mb-1">MICROPHONE</label><select className="w-full p-2 border rounded mb-3 text-sm bg-[var(--bg-tertiary)]" value={selectedMicId} onChange={(e) => saveAudioSettings(e.target.value, selectedSpeakerId, enableNoiseSuppression, soundEnabled)}><option value="">Default</option>{audioInputs.map(d => <option key={d.deviceId} value={d.deviceId}>{d.label || `Microphone ${d.deviceId}`}</option>)}</select><label className="text-xs font-bold text-[var(--text-secondary)] block mb-1">SPEAKERS</label><select className="w-full p-2 border rounded text-sm bg-[var(--bg-tertiary)] mb-3" value={selectedSpeakerId} onChange={(e) => saveAudioSettings(selectedMicId, e.target.value, enableNoiseSuppression, soundEnabled)}><option value="">Default</option>{audioOutputs.map(d => <option key={d.deviceId} value={d.deviceId}>{d.label || `Speaker ${d.deviceId}`}</option>)}</select>
-              
-              {/* NOISE CANCELLATION */}
-              <div className="flex items-center justify-between p-2 border rounded bg-[var(--bg-tertiary)] cursor-pointer mb-2" onClick={() => saveAudioSettings(selectedMicId, selectedSpeakerId, !enableNoiseSuppression, soundEnabled)}>
-                <div className="flex items-center text-sm font-bold">{enableNoiseSuppression && <Zap size={16} className="text-yellow-500 mr-2"/>}{!enableNoiseSuppression && <ZapOff size={16} className="text-gray-400 mr-2"/>} Noise Suppression (AI)</div>
-                <div className={`w-8 h-4 rounded-full relative transition-colors ${enableNoiseSuppression ? 'bg-green-500' : 'bg-gray-400'}`}><div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${enableNoiseSuppression ? 'left-4.5' : 'left-0.5'}`}></div></div>
-              </div>
-
-              {/* SOUND TOGGLE */}
-              <div className="flex items-center justify-between p-2 border rounded bg-[var(--bg-tertiary)] cursor-pointer" onClick={() => saveAudioSettings(selectedMicId, selectedSpeakerId, enableNoiseSuppression, !soundEnabled)}>
-                <div className="flex items-center text-sm font-bold">{soundEnabled && <Volume2 size={16} className="text-blue-500 mr-2"/>}{!soundEnabled && <VolumeX size={16} className="text-gray-400 mr-2"/>} Sound Effects</div>
-                <div className={`w-8 h-4 rounded-full relative transition-colors ${soundEnabled ? 'bg-blue-500' : 'bg-gray-400'}`}><div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${soundEnabled ? 'left-4.5' : 'left-0.5'}`}></div></div>
-              </div>
-
+              <div className="flex items-center justify-between p-2 border rounded bg-[var(--bg-tertiary)] cursor-pointer mb-2" onClick={() => saveAudioSettings(selectedMicId, selectedSpeakerId, !enableNoiseSuppression, soundEnabled)}><div className="flex items-center text-sm font-bold">{enableNoiseSuppression && <Zap size={16} className="text-yellow-500 mr-2"/>}{!enableNoiseSuppression && <ZapOff size={16} className="text-gray-400 mr-2"/>} Noise Suppression (AI)</div><div className={`w-8 h-4 rounded-full relative transition-colors ${enableNoiseSuppression ? 'bg-green-500' : 'bg-gray-400'}`}><div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${enableNoiseSuppression ? 'left-4.5' : 'left-0.5'}`}></div></div></div>
+              <div className="flex items-center justify-between p-2 border rounded bg-[var(--bg-tertiary)] cursor-pointer" onClick={() => saveAudioSettings(selectedMicId, selectedSpeakerId, enableNoiseSuppression, !soundEnabled)}><div className="flex items-center text-sm font-bold">{soundEnabled && <Volume2 size={16} className="text-blue-500 mr-2"/>}{!soundEnabled && <VolumeX size={16} className="text-gray-400 mr-2"/>} Sound Effects</div><div className={`w-8 h-4 rounded-full relative transition-colors ${soundEnabled ? 'bg-blue-500' : 'bg-gray-400'}`}><div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${soundEnabled ? 'left-4.5' : 'left-0.5'}`}></div></div></div>
               <div className="mt-4 flex items-center gap-2"><button onClick={toggleMicTest} className={`flex-1 py-2 rounded text-sm font-bold transition-colors ${isTestingMic ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-gray-100 text-gray-900 hover:bg-gray-200'}`}>{isTestingMic ? "Stop Test" : "Check Microphone"}</button><audio ref={testAudioRef} hidden />{isTestingMic && <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse"></div>}</div></div>
               <div className="flex justify-end gap-2"><button onClick={closeSettings} className="px-4 py-2 text-[var(--text-secondary)]">Cancel</button><button onClick={updateUserProfile} className="bg-green-600 text-white px-4 py-2 rounded font-bold">Save</button></div>
             </div>
