@@ -1,11 +1,11 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   Hash, Send, Plus, MessageSquare, LogOut, Paperclip, UserPlus, PhoneOff, Bell,
   Check, X, Settings, Trash2, UserMinus, Users, Volume2, Mic, MicOff, Smile, Edit2,
   Palette, Zap, ZapOff, Video, VideoOff, Monitor, MonitorOff, Volume1, VolumeX, Camera,
-  Maximize, Minimize, Keyboard, Sliders, Volume, Headphones, HeadphoneOff
+  Maximize, Minimize, Keyboard, Sliders, Volume, Headphones, HeadphoneOff, UploadCloud, WifiOff
 } from "lucide-react";
 import io, { Socket } from "socket.io-client";
 import Peer from "simple-peer";
@@ -167,11 +167,12 @@ const useProcessedStream = (rawStream: MediaStream | null, threshold: number, is
 };
 
 // --- COMPONENTS ---
-const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, username, outputDeviceId, isScreenShare, globalDeaf, remoteMuted }: { stream: MediaStream | null; isLocal: boolean; userId: string; userAvatar?: string; username?: string; outputDeviceId?: string; isScreenShare?: boolean; globalDeaf?: boolean; remoteMuted?: boolean }) => {
+const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, username, outputDeviceId, isScreenShare, globalDeaf, remoteMuted, miniMode }: { stream: MediaStream | null; isLocal: boolean; userId: string; userAvatar?: string; username?: string; outputDeviceId?: string; isScreenShare?: boolean; globalDeaf?: boolean; remoteMuted?: boolean; miniMode?: boolean }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const isSpeaking = useStreamAnalyzer(stream); 
   const [hasVideo, setHasVideo] = useState(false);
+  const [isAudioEnabled, setIsAudioEnabled] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [volume, setVolume] = useState(1);
 
@@ -199,16 +200,23 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
   const toggleFullscreen = () => { if (!containerRef.current) return; if (!document.fullscreenElement) { containerRef.current.requestFullscreen().catch(err => console.log(err)); } else { document.exitFullscreen(); } };
 
   const objectFitClass = (isScreenShare || isFullscreen) ? 'object-contain' : 'object-cover';
-  const containerClass = isFullscreen ? 'fixed inset-0 z-50 bg-black rounded-none flex flex-col items-center justify-center' : 'flex flex-col items-center justify-center p-2 h-full w-full relative bg-black/40 rounded-xl overflow-hidden border border-white/10 group transition-all';
+  
+  // Conditionally render styling for PIP (miniMode)
+  const containerClass = miniMode 
+    ? 'relative bg-black rounded-lg overflow-hidden border border-white/20 w-full h-full' 
+    : (isFullscreen 
+        ? 'fixed inset-0 z-50 bg-black rounded-none flex flex-col items-center justify-center' 
+        : 'flex flex-col items-center justify-center p-2 h-full w-full relative bg-black/40 rounded-xl overflow-hidden border border-white/10 group transition-all');
   
   const shouldMuteVideoElement = isLocal || (globalDeaf === true);
+  const avatarSize = miniMode ? "w-8 h-8" : "w-24 h-24";
 
   return (
     <div ref={containerRef} className={containerClass}>
       <video ref={videoRef} autoPlay playsInline muted={shouldMuteVideoElement} className={`absolute inset-0 w-full h-full ${objectFitClass} transition-all duration-300 ${hasVideo ? 'opacity-100' : 'opacity-0'} ${isLocal && !isScreenShare ? 'scale-x-[-1]' : ''}`} />
       {!hasVideo && (
         <div className="z-10 flex flex-col items-center">
-            <div className={`relative w-24 h-24 rounded-full p-1 transition-all duration-150 ${isSpeaking && !remoteMuted ? "bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.6)] scale-105" : "bg-gray-700"}`}>
+            <div className={`relative ${avatarSize} rounded-full p-1 transition-all duration-150 ${isSpeaking && !remoteMuted ? "bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.6)] scale-105" : "bg-gray-700"}`}>
                 <img src={userAvatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userId}`} className="w-full h-full rounded-full object-cover border-2 border-gray-900" alt="avatar"/>
             </div>
         </div>
@@ -216,18 +224,20 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
       {hasVideo && isSpeaking && !remoteMuted && (<div className="absolute inset-0 border-4 border-green-500 rounded-xl z-20 pointer-events-none opacity-50"></div>)}
       
       {/* SHOW MUTE ICON IF REMOTE SAYS SO */}
-      {remoteMuted && (<div className="absolute top-4 right-4 bg-red-600 p-2 rounded-full shadow-lg z-20 animate-in fade-in zoom-in duration-200"><MicOff size={16} className="text-white" /></div>)}
+      {remoteMuted && (<div className={`absolute top-2 right-2 bg-red-600 ${miniMode ? 'p-1' : 'p-2'} rounded-full shadow-lg z-20`}><MicOff size={miniMode ? 10 : 16} className="text-white" /></div>)}
       
-      {!isLocal && (<div className="absolute bottom-12 left-1/2 -translate-x-1/2 w-3/4 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 px-3 py-1 rounded-full flex items-center gap-2 z-30"><Volume size={14} className="text-gray-300"/><input type="range" min="0" max="1" step="0.05" value={volume} onChange={e=>setVolume(Number(e.target.value))} className="w-full"/></div>)}
-      <button onClick={toggleFullscreen} className="absolute bottom-10 right-4 p-2 bg-black/50 hover:bg-black/80 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity z-20">{isFullscreen ? <Minimize size={20}/> : <Maximize size={20}/>}</button>
-      <div className={`absolute bottom-4 left-4 z-20 text-white font-bold text-sm bg-black/60 px-3 py-1 rounded backdrop-blur-sm flex items-center gap-1 ${isFullscreen ? 'scale-125 origin-bottom-left' : ''}`}>{username || "Guest"} {isLocal && "(You)"}</div>
+      {!isLocal && !miniMode && (<div className="absolute bottom-12 left-1/2 -translate-x-1/2 w-3/4 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 px-3 py-1 rounded-full flex items-center gap-2 z-30"><Volume size={14} className="text-gray-300"/><input type="range" min="0" max="1" step="0.05" value={volume} onChange={e=>setVolume(Number(e.target.value))} className="w-full"/></div>)}
+      {!miniMode && <button onClick={toggleFullscreen} className="absolute bottom-10 right-4 p-2 bg-black/50 hover:bg-black/80 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity z-20">{isFullscreen ? <Minimize size={20}/> : <Maximize size={20}/>}</button>}
+      
+      {/* Name Tag */}
+      {!miniMode && <div className={`absolute bottom-4 left-4 z-20 text-white font-bold text-sm bg-black/60 px-3 py-1 rounded backdrop-blur-sm flex items-center gap-1 ${isFullscreen ? 'scale-125 origin-bottom-left' : ''}`}>{username || "Guest"} {isLocal && "(You)"}</div>}
     </div>
   );
 });
 UserMediaComponent.displayName = "UserMediaComponent";
 
 // === PEER WRAPPER WITH DATA CHANNEL LISTENER ===
-const GroupPeerWrapper = ({ peer, peerID, outputDeviceId, allUsers, globalDeaf }: { peer: Peer.Instance; peerID: string; outputDeviceId?: string; allUsers: any[]; globalDeaf: boolean }) => {
+const GroupPeerWrapper = ({ peer, peerID, outputDeviceId, allUsers, globalDeaf, miniMode }: { peer: Peer.Instance; peerID: string; outputDeviceId?: string; allUsers: any[]; globalDeaf: boolean; miniMode?: boolean }) => {
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [remoteMuted, setRemoteMuted] = useState(false);
 
@@ -256,7 +266,7 @@ const GroupPeerWrapper = ({ peer, peerID, outputDeviceId, allUsers, globalDeaf }
   }, [peer]);
 
   const u = allUsers.find((x: any) => x.socketId === peerID);
-  return <UserMediaComponent stream={stream} isLocal={false} userId={peerID} userAvatar={u?.avatar} username={u?.username || "Connecting..."} outputDeviceId={outputDeviceId} isScreenShare={false} globalDeaf={globalDeaf} remoteMuted={remoteMuted}/>;
+  return <UserMediaComponent stream={stream} isLocal={false} userId={peerID} userAvatar={u?.avatar} username={u?.username || "Connecting..."} outputDeviceId={outputDeviceId} isScreenShare={false} globalDeaf={globalDeaf} remoteMuted={remoteMuted} miniMode={miniMode}/>;
 };
 
 // ============================ APP ============================
@@ -333,6 +343,10 @@ export default function EcoTalkApp() {
   const lastTypingTime = useRef<number>(0);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // === DND & CONNECTION STATUS ===
+  const [isDragging, setIsDragging] = useState(false);
+  const [isOffline, setIsOffline] = useState(false);
+
   useEffect(() => { const savedTheme = localStorage.getItem("eco_theme"); if (savedTheme) { setTheme(savedTheme); document.documentElement.setAttribute('data-theme', savedTheme); } }, []);
   const playSound = (type: 'msg' | 'join' | 'leave' | 'click') => { if (soundEnabled) playSoundEffect(type); };
   const formatLastSeen = (d: string) => { if (!d) return "Offline"; const diff = Math.floor((Date.now() - new Date(d).getTime()) / 60000); if (diff < 1) return "Just now"; if (diff < 60) return `${diff}m ago`; const hours = Math.floor(diff / 60); return hours < 24 ? `${hours}h ago` : new Date(d).toLocaleDateString(); };
@@ -343,6 +357,18 @@ export default function EcoTalkApp() {
   useEffect(() => { activeDMRef.current = activeDM; }, [activeDM]);
   useEffect(() => { document.documentElement.setAttribute('data-theme', theme); localStorage.setItem('eco_theme', theme); }, [theme]);
   
+  // === NETWORK STATUS ===
+  useEffect(() => {
+    const handleOffline = () => setIsOffline(true);
+    const handleOnline = () => { setIsOffline(false); socket.connect(); };
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('online', handleOnline);
+    return () => {
+        window.removeEventListener('offline', handleOffline);
+        window.removeEventListener('online', handleOnline);
+    };
+  }, [socket]);
+
   // === BROADCAST MUTE STATE VIA DATA CHANNEL ===
   const broadcastMuteState = (muted: boolean) => {
       const msg = JSON.stringify({ type: 'mute-status', isMuted: muted });
@@ -357,6 +383,15 @@ export default function EcoTalkApp() {
      // Broadcast whenever mute changes
      broadcastMuteState(isMuted);
   }, [isMuted, peers]);
+
+  // === FIX: Sync Mute State to Track (so peers see the mute icon) ===
+  useEffect(() => {
+    if (processedStream) {
+      processedStream.getAudioTracks().forEach(track => {
+        track.enabled = !isMuted; // True = Unmuted, False = Muted
+      });
+    }
+  }, [isMuted, processedStream]);
 
   useEffect(() => {
       const handleKeyDown = (e: KeyboardEvent) => {
@@ -533,6 +568,26 @@ export default function EcoTalkApp() {
       if (newState) setIsMuted(true);
   };
 
+  // === DRAG & DROP HANDLERS ===
+  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); };
+  const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(false); };
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault(); setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            socket.emit("send_message", { 
+                content: null, imageUrl: reader.result, type: "image", 
+                author: currentUser.username, userId: currentUser.id, 
+                channelId: activeServerId ? activeChannel?.id : null, 
+                dmRoom: activeDM ? `dm_${[currentUser.id, activeDM.id].sort().join("_")}` : null 
+            });
+        };
+        reader.readAsDataURL(file);
+    }
+  };
+
   const selectDM = (friend: any) => { if (friend.id === currentUser?.id) return; setActiveServerId(null); if (activeVoiceChannel) leaveVoiceChannel(); setActiveDM(friend); setActiveChannel(null); setMessages([]); const me = currentUser; if (!me) return; const ids = [me.id, friend.id].sort(); socket.emit("join_dm", { roomName: `dm_${ids[0]}_${ids[1]}` }); playSound("click"); };
   const sendMessage = () => { const me = currentUser; if (!me || !inputText) return; socket.emit("send_message", { content: inputText, author: me.username, userId: me.id, channelId: activeServerId ? activeChannel?.id : null, dmRoom: activeDM ? `dm_${[me.id, activeDM.id].sort().join("_")}` : null, }); setInputText(""); const room = activeServerId ? `channel_${activeChannel?.id}` : activeDM ? `dm_${[me.id, activeDM.id].sort().join("_")}` : null; if (room) socket.emit("stop_typing", { room }); };
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onloadend = () => socket.emit("send_message", { content: null, imageUrl: reader.result, type: "image", author: currentUser.username, userId: currentUser.id, channelId: activeServerId ? activeChannel?.id : null, dmRoom: activeDM ? `dm_${[currentUser.id, activeDM.id].sort().join("_")}` : null, }); reader.readAsDataURL(file); };
@@ -555,13 +610,24 @@ export default function EcoTalkApp() {
   }
 
   const activeFriendData = myFriends.find(f => f.id === activeDM?.id);
+  const isVoiceActiveView = activeChannel?.type === 'voice';
 
   return (
     <div className="flex h-screen overflow-hidden bg-[var(--bg-primary)] text-[var(--text-primary)] font-[var(--font-family)] notranslate">
       <style>{THEME_STYLES}</style>
+      
+      {/* CONNECTION ALERT */}
+      {isOffline && (
+        <div className="absolute top-0 left-0 right-0 bg-red-500 text-white text-xs font-bold text-center py-1 z-[100] animate-pulse">
+            <WifiOff size={12} className="inline mr-1"/> Reconnecting...
+        </div>
+      )}
+
       <div className={`flex w-full h-full`}>
+        {/* SIDEBAR */}
         <div className="w-18 bg-gray-900 flex flex-col items-center py-4 space-y-3 z-20 text-white"><div onClick={() => setActiveServerId(null)} className={`w-12 h-12 rounded-2xl flex items-center justify-center cursor-pointer ${activeServerId===null ? 'bg-indigo-500 text-white' : 'bg-gray-700 text-gray-200 hover:bg-green-600'}`}><MessageSquare size={24}/></div><div className="w-8 h-0.5 bg-gray-700 rounded"></div>{myServers.map(s => <div key={s.id} onClick={() => selectServer(s.id)} className={`w-12 h-12 rounded-full flex items-center justify-center cursor-pointer font-bold overflow-hidden ${activeServerId===s.id ? 'rounded-xl bg-green-500 text-white' : 'bg-gray-700 text-gray-200'}`} title={s.name}>{s.icon && s.icon.startsWith('data:') ? <img src={s.icon} className="w-full h-full object-cover"/> : s.name[0]}</div>)}<div onClick={() => setShowCreateServer(true)} className="w-12 h-12 bg-gray-800 rounded-full flex items-center justify-center text-green-400 cursor-pointer"><Plus size={24}/></div></div>
         
+        {/* CHANNEL LIST */}
         <div className="w-60 bg-[var(--bg-secondary)] border-r border-[var(--border)] flex flex-col transition-colors relative">
           <div className="h-12 border-b border-[var(--border)] flex items-center px-4 font-bold text-[var(--text-primary)] justify-between"><div className="truncate w-32">{activeServerId ? myServers.find(s=>s.id===activeServerId)?.name : 'Direct Messages'}</div><div className="flex gap-2 items-center">{activeServerId && activeServerData?.ownerId === currentUser.id && <Settings size={16} className="cursor-pointer hover:text-[var(--accent)]" onClick={openServerSettings}/>}{!activeServerId && <div className="text-[var(--text-secondary)] hover:text-[var(--accent)] cursor-pointer" onClick={() => setShowAddFriend(true)}><Plus size={18}/></div>}{activeServerId && <UserPlus size={18} className="cursor-pointer hover:text-[var(--accent)]" onClick={() => setShowInvite(true)} />}<div className="relative" onClick={() => setShowNotifPanel(!showNotifPanel)}><Bell size={18} className={`cursor-pointer ${notifications.length > 0 ? 'text-[var(--accent)] animate-pulse' : 'text-[var(--text-secondary)]'}`}/>{notifications.length > 0 && <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white" />}</div></div>{showNotifPanel && <div className="absolute top-12 left-20 w-64 bg-[var(--bg-primary)] border border-[var(--border)] shadow-xl rounded-b-xl z-50 max-h-80 overflow-y-auto text-[var(--text-primary)]"><div className="p-2 text-xs font-bold text-[var(--text-secondary)] border-b">NOTIFICATIONS</div>{notifications.length===0?<div className="p-4 text-center text-sm text-gray-400">No new notifications</div>:notifications.map(n=><div key={n.id} className="p-3 border-b hover:bg-[var(--bg-secondary)] transition-colors"><div className="text-sm mb-2"><span className="font-bold">{n.sender.username}</span> {n.type}</div><div className="flex gap-2"><button onClick={()=>handleNotification(n.id, "ACCEPT")} className="flex-1 bg-green-500 text-white py-1 rounded text-xs font-bold flex items-center justify-center"><Check size={12}/> Accept</button><button onClick={()=>handleNotification(n.id, "DECLINE")} className="flex-1 bg-gray-200 text-gray-600 py-1 rounded text-xs font-bold flex items-center justify-center"><X size={12}/> Decline</button></div></div>)}</div>}</div>
           <div className="flex-1 p-2 overflow-y-auto pb-16">
@@ -590,6 +656,7 @@ export default function EcoTalkApp() {
             )}
           </div>
           
+          {/* VOICE CONTROLS */}
           {activeVoiceChannel && (
               <div className="absolute bottom-12 left-0 right-0 bg-green-900/90 text-white p-2 border-t border-green-700 flex items-center justify-between z-20">
                   <div className="flex flex-col text-xs px-2 truncate">
@@ -613,12 +680,19 @@ export default function EcoTalkApp() {
           <div className="p-2 border-t border-[var(--border)] flex items-center bg-[var(--bg-tertiary)]"><img src={currentUser?.avatar} className="w-8 h-8 rounded-full mr-2"/><div className="font-bold text-sm">{currentUser?.username}</div><Settings size={16} className="ml-auto mr-2 cursor-pointer text-[var(--text-secondary)] hover:text-[var(--text-primary)]" onClick={openUserProfile}/><LogOut size={16} className="cursor-pointer text-red-500" onClick={handleLogout}/></div>
         </div>
 
+        {/* MAIN AREA */}
         <div className="flex-1 flex flex-col bg-[var(--bg-primary)] min-w-0 relative transition-colors">
           <div className="h-12 border-b border-[var(--border)] flex items-center justify-between px-4 shadow-sm"><div className="font-bold text-[var(--text-primary)] flex items-center">{activeServerId ? (<>{activeChannel?.type === 'voice' ? <Volume2 className="mr-2"/> : <Hash className="mr-2"/>} {activeChannel?.name}</>) : (<><div className="flex flex-col"><span>{activeDM?.username || 'Select Friend'}</span>{activeDM && (<span className={`text-[10px] font-normal ${activeFriendData?.status==='online'?'text-green-600':'text-gray-400'}`}>{activeFriendData?.status==='online'?'Online':`Last seen: ${formatLastSeen(activeFriendData?.lastSeen)}`}</span>)}</div></>)}</div><div className="flex items-center space-x-4">{activeServerId && <Users className={`cursor-pointer ${showMembersPanel ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'}`} onClick={()=>setShowMembersPanel(!showMembersPanel)}/>}</div></div>
-          {activeChannel?.type === 'voice' ? (
+          
+          {/* VOICE VIEW */}
+          {isVoiceActiveView ? (
              <div className="flex-1 bg-gray-900 p-4 flex flex-col relative"><div className="flex-1 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 auto-rows-fr h-full overflow-y-auto"><UserMediaComponent stream={isMuted ? null : processedStream} isLocal={true} userId="me" userAvatar={currentUser?.avatar} username={currentUser?.username} isScreenShare={isScreenSharing} />{peers.map(p => (<GroupPeerWrapper key={p.peerID} peer={p.peer} peerID={p.peerID} outputDeviceId={selectedSpeakerId} allUsers={voiceStates[activeChannel.id] || []} globalDeaf={isDeafened}/>))}</div><div className="h-20 flex justify-center items-center gap-4 mt-4 bg-black/40 rounded-2xl backdrop-blur-md border border-white/10 p-2 max-w-2xl mx-auto"><button onClick={toggleVideo} className={`p-3 rounded-full text-white transition-all hover:scale-105 ${isVideoOn ? 'bg-white text-black' : 'bg-gray-700 hover:bg-gray-600'}`} title="Toggle Camera">{isVideoOn ? <Video /> : <VideoOff />}</button><button onClick={toggleScreenShare} className={`p-3 rounded-full text-white transition-all hover:scale-105 ${isScreenSharing ? 'bg-green-500' : 'bg-gray-700 hover:bg-gray-600'}`} title="Share Screen">{isScreenSharing ? <Monitor /> : <MonitorOff />}</button><button onClick={toggleMute} className={`p-3 rounded-full text-white transition-all hover:scale-105 ${isMuted ? 'bg-red-500' : 'bg-gray-700 hover:bg-gray-600'}`} title="Toggle Microphone">{isMuted ? <MicOff/> : <Mic/>}</button><button onClick={leaveVoiceChannel} className="p-3 bg-red-600 rounded-full text-white hover:bg-red-700 hover:scale-105 transition-all" title="Disconnect"><PhoneOff/></button></div></div>
           ) : (
-             <><div className="flex-1 overflow-y-auto p-4 space-y-4">
+             <>
+             {/* TEXT CHAT VIEW */}
+             <div className="flex-1 overflow-y-auto p-4 space-y-4" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
+                {isDragging && <div className="absolute inset-0 bg-blue-500/20 border-4 border-blue-500 border-dashed z-50 flex items-center justify-center text-blue-600 font-bold text-xl pointer-events-none"><UploadCloud size={48} className="mr-2"/> Drop files to upload</div>}
+                
                 {messages.map((m,i) => { 
                     const showDate = i===0 || formatDateHeader(messages[i-1].createdAt) !== formatDateHeader(m.createdAt);
                     return (
@@ -659,6 +733,19 @@ export default function EcoTalkApp() {
                 {typingUsers.length > 0 && <div className="text-xs text-[var(--text-secondary)] font-bold px-4 animate-pulse">Someone is typing...</div>}
              </div>
              <div className="p-4"><div className="border border-[var(--border)] rounded-lg flex items-center p-2 bg-[var(--bg-tertiary)]"><input type="file" ref={fileInputRef} hidden onChange={handleFile}/><Paperclip size={20} className="text-[var(--text-secondary)] cursor-pointer mr-2" onClick={()=>fileInputRef.current?.click()}/><input className="flex-1 outline-none bg-transparent text-[var(--text-primary)]" placeholder="Message..." value={inputText} onChange={handleTyping} onKeyDown={e=>e.key==='Enter'&&sendMessage()}/><Send size={20} className="cursor-pointer text-[var(--text-secondary)]" onClick={sendMessage}/></div></div>
+             
+             {/* PIP (PICTURE IN PICTURE) MODE */}
+             {!isVoiceActiveView && activeVoiceChannel && (
+                <div className="absolute bottom-20 right-4 w-64 h-40 bg-black rounded-lg shadow-2xl overflow-hidden border-2 border-white/20 z-50 cursor-pointer hover:scale-105 transition-transform" onClick={() => {
+                    const c = myServers.find(s=>s.id===activeServerId)?.channels.find((x:any)=>x.id===activeVoiceChannel);
+                    if(c) selectChannel(c);
+                }}>
+                    <div className="grid grid-cols-2 h-full bg-gray-900">
+                        <UserMediaComponent stream={isMuted ? null : processedStream} isLocal={true} userId="me" userAvatar={currentUser?.avatar} username={currentUser?.username} isScreenShare={isScreenSharing} miniMode={true}/>
+                        {peers.map(p => (<GroupPeerWrapper key={p.peerID} peer={p.peer} peerID={p.peerID} outputDeviceId={selectedSpeakerId} allUsers={voiceStates[activeVoiceChannel] || []} globalDeaf={isDeafened} miniMode={true}/>))}
+                    </div>
+                </div>
+             )}
              </>
           )}
         </div>
