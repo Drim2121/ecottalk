@@ -5,7 +5,7 @@ import {
   Hash, Send, Plus, MessageSquare, LogOut, Paperclip, UserPlus, PhoneOff, Bell,
   Check, X, Settings, Trash2, UserMinus, Users, Volume2, Mic, MicOff, Smile, Edit2,
   Palette, Zap, ZapOff, Video, VideoOff, Monitor, MonitorOff, Volume1, VolumeX, Camera,
-  Maximize, Minimize, Keyboard
+  Maximize, Minimize, Keyboard, Sliders // Sliders иконка
 } from "lucide-react";
 import io, { Socket } from "socket.io-client";
 import Peer from "simple-peer";
@@ -28,6 +28,9 @@ const THEME_STYLES = `
   :root[data-theme="vintage"] { --bg-primary: #fffbeb; --bg-secondary: #fef3c7; --bg-tertiary: #fde68a; --text-primary: #78350f; --text-secondary: #92400e; --accent: #d97706; --border: #fcd34d; --font-family: 'Georgia', serif; }
   body, div, input, textarea, video { transition: background-color 0.3s ease, color 0.3s ease; }
   video::-webkit-media-controls { display:none !important; }
+  input[type=range] { -webkit-appearance: none; background: transparent; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 16px; width: 16px; border-radius: 50%; background: var(--accent); cursor: pointer; margin-top: -6px; }
+  input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; cursor: pointer; background: var(--border); border-radius: 2px; }
 `;
 
 let _socket: Socket | null = null;
@@ -69,43 +72,121 @@ const playSoundEffect = (type: 'msg' | 'join' | 'leave' | 'click') => {
   }
 };
 
-const useAudioActivity = (stream: MediaStream | undefined | null) => {
-  const [isSpeaking, setIsSpeaking] = useState(false); const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+// === VOICE GATE (NOISE GATE) ENGINE ===
+// This hook not only detects speaking but actively MUTES the track if below threshold
+const useVoiceGate = (stream: MediaStream | null, threshold: number, isGlobalMute: boolean) => {
+  const [isTalking, setIsTalking] = useState(false);
+  const holdTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
-    if (!stream || stream.getAudioTracks().length === 0) { setIsSpeaking(false); return; }
-    const ctx = getAudioContext(); if (!ctx) return;
+    if (!stream || stream.getAudioTracks().length === 0) return;
+    
+    // If globally muted, force disable track immediately
+    if (isGlobalMute) {
+        stream.getAudioTracks()[0].enabled = false;
+        setIsTalking(false);
+        return;
+    }
+
+    const ctx = getAudioContext();
+    if (!ctx) return;
+
+    let source: MediaStreamAudioSourceNode | null = null;
+    let analyser: AnalyserNode | null = null;
+    let interval: any = null;
+
     try {
       if (ctx.state === "suspended") ctx.resume();
-      const analyser = ctx.createAnalyser(); analyser.fftSize = 128;
-      const source = ctx.createMediaStreamSource(stream); source.connect(analyser);
-      const check = () => { const data = new Uint8Array(analyser.frequencyBinCount); analyser.getByteFrequencyData(data); let sum = 0; for (let i = 0; i < data.length; i += 2) sum += data[i]; setIsSpeaking(sum / (data.length / 2) > 10); };
-      intervalRef.current = setInterval(check, 250); return () => { if (intervalRef.current) clearInterval(intervalRef.current); try { source.disconnect(); analyser.disconnect(); } catch {} };
+      analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
+      source = ctx.createMediaStreamSource(stream);
+      source.connect(analyser);
+
+      const checkVolume = () => {
+        if (!analyser || isGlobalMute) return;
+        const data = new Uint8Array(analyser.frequencyBinCount);
+        analyser.getByteFrequencyData(data);
+        
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) sum += data[i];
+        const average = sum / data.length;
+
+        // Threshold logic (0-100 mapped to volume)
+        // Adjust sensitivity: Threshold 0 = Always on. Threshold 50 = Loud talking only.
+        const isLoudEnough = average > threshold;
+
+        if (isLoudEnough) {
+            // Speech detected
+            if (holdTimeout.current) clearTimeout(holdTimeout.current);
+            setIsTalking(true);
+            stream.getAudioTracks()[0].enabled = true;
+        } else {
+            // Silence detected - Wait before cutting (Hysteresis)
+            if (!holdTimeout.current && stream.getAudioTracks()[0].enabled) {
+                holdTimeout.current = setTimeout(() => {
+                    if(!isGlobalMute) { // Check again
+                       setIsTalking(false);
+                       stream.getAudioTracks()[0].enabled = false; // MUTE HARDWARE
+                    }
+                    holdTimeout.current = null;
+                }, 500); // 500ms delay before cutting mic
+            }
+        }
+      };
+
+      interval = setInterval(checkVolume, 100);
+
+      // Force enable initially if threshold is 0
+      if(threshold === 0) stream.getAudioTracks()[0].enabled = true;
+
     } catch (e) { console.error(e); }
-  }, [stream]);
-  return isSpeaking;
+
+    return () => {
+      if (interval) clearInterval(interval);
+      if (holdTimeout.current) clearTimeout(holdTimeout.current);
+      try { source?.disconnect(); analyser?.disconnect(); } catch {}
+      // Reset track state on unmount or change
+      if (stream.getAudioTracks().length > 0 && !isGlobalMute) stream.getAudioTracks()[0].enabled = true; 
+    };
+  }, [stream, threshold, isGlobalMute]);
+
+  return isTalking;
 };
 
 // --- COMPONENTS ---
 const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, username, outputDeviceId, isScreenShare }: { stream: MediaStream | null; isLocal: boolean; userId: string; userAvatar?: string; username?: string; outputDeviceId?: string; isScreenShare?: boolean; }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const isSpeaking = useAudioActivity(stream);
+  
+  // Visualizer only
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const [hasVideo, setHasVideo] = useState(false);
   const [isAudioEnabled, setIsAudioEnabled] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
-    if(!stream) { setHasVideo(false); setIsAudioEnabled(false); return; }
-    const checkTracks = () => {
+    if(!stream) { setHasVideo(false); setIsAudioEnabled(false); setIsSpeaking(false); return; }
+    
+    // Polling for track status (remote peers)
+    const checkStatus = () => {
         setHasVideo(stream.getVideoTracks().length > 0 && stream.getVideoTracks()[0].enabled);
         const audioTrack = stream.getAudioTracks()[0];
         setIsAudioEnabled(audioTrack ? audioTrack.enabled : false);
+        
+        // Simple visualizer for remote peers (since local is handled by main logic)
+        if(!isLocal && audioTrack && audioTrack.enabled) {
+             // We can't easily analyze remote streams due to CORS without complex setups, 
+             // so we rely on the 'enabled' flag for the UI mainly.
+             // But let's try a simple volume check if Context allows
+             setIsSpeaking(true); // Simplified for remote
+        } else {
+             setIsSpeaking(false);
+        }
     };
-    checkTracks();
-    stream.getTracks().forEach(track => { track.onmute = checkTracks; track.onunmute = checkTracks; track.onended = checkTracks; });
-    const interval = setInterval(checkTracks, 500); 
+    
+    const interval = setInterval(checkStatus, 200);
     return () => clearInterval(interval);
-  }, [stream]);
+  }, [stream, isLocal]);
 
   useEffect(() => {
       const handleFsChange = () => { setIsFullscreen(!!document.fullscreenElement); };
@@ -129,7 +210,7 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
       <video ref={videoRef} autoPlay playsInline muted={isLocal} className={`absolute inset-0 w-full h-full ${objectFitClass} transition-all duration-300 ${hasVideo ? 'opacity-100' : 'opacity-0'} ${isLocal && !isScreenShare ? 'scale-x-[-1]' : ''}`} />
       {!hasVideo && (
         <div className="z-10 flex flex-col items-center">
-            <div className={`relative w-24 h-24 rounded-full p-1 transition-all ${isSpeaking ? "bg-green-500 shadow-lg scale-110" : "bg-gray-700"}`}>
+            <div className={`relative w-24 h-24 rounded-full p-1 transition-all duration-200 ${isAudioEnabled ? "bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.6)] scale-105" : "bg-gray-700"}`}>
                 <img src={userAvatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userId}`} className="w-full h-full rounded-full object-cover border-2 border-gray-900" alt="avatar"/>
             </div>
         </div>
@@ -202,13 +283,16 @@ export default function EcoTalkApp() {
   const [audioOutputs, setAudioOutputs] = useState<MediaDeviceInfo[]>([]);
   const [selectedMicId, setSelectedMicId] = useState<string>("");
   const [selectedSpeakerId, setSelectedSpeakerId] = useState<string>("");
+  
+  // === ADVANCED AUDIO SETTINGS ===
   const [enableNoiseSuppression, setEnableNoiseSuppression] = useState(true);
+  const [voiceThreshold, setVoiceThreshold] = useState(10); // 0-100 (Noise Gate)
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [isTestingMic, setIsTestingMic] = useState(false);
   const testAudioRef = useRef<HTMLAudioElement>(null);
   
   // VOICE STATE
-  const [activeVoiceChannel, setActiveVoiceChannel] = useState<number | null>(null); // VOICE CONNECTION
+  const [activeVoiceChannel, setActiveVoiceChannel] = useState<number | null>(null); 
   const [myStream, setMyStream] = useState<MediaStream | null>(null);
   const [peers, setPeers] = useState<{ peerID: string; peer: Peer.Instance }[]>([]);
   const peersRef = useRef<{ peerID: string; peer: Peer.Instance }[]>([]);
@@ -216,6 +300,9 @@ export default function EcoTalkApp() {
   const [isVideoOn, setIsVideoOn] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   
+  // USE VOICE GATE HOOK (Controls mute based on volume)
+  useVoiceGate(myStream, voiceThreshold, isMuted);
+
   // KEYBINDS
   const [muteKey, setMuteKey] = useState<string | null>(null);
   const [isRecordingKey, setIsRecordingKey] = useState(false);
@@ -266,6 +353,7 @@ export default function EcoTalkApp() {
     const savedNC = localStorage.getItem("eco_nc"); if (savedNC !== null) setEnableNoiseSuppression(savedNC === "true");
     const savedSound = localStorage.getItem("eco_sound"); if (savedSound !== null) setSoundEnabled(savedSound === "true");
     const savedKey = localStorage.getItem("eco_mute_key"); if(savedKey) setMuteKey(savedKey);
+    const savedThreshold = localStorage.getItem("eco_voice_threshold"); if(savedThreshold) setVoiceThreshold(Number(savedThreshold));
 
     if (typeof navigator !== 'undefined' && navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) { navigator.mediaDevices.enumerateDevices().then((d) => { setAudioInputs(d.filter((x) => x.kind === "audioinput")); setAudioOutputs(d.filter((x) => x.kind === "audiooutput")); }).catch(() => {}); }
     socket.emit("request_voice_states");
@@ -336,25 +424,22 @@ export default function EcoTalkApp() {
       video: video ? { width: 640, height: 480, facingMode: "user" } : false, 
       audio: { 
           deviceId: selectedMicId ? { exact: selectedMicId } : undefined, 
-          // Standard
+          // Browser DSP
           echoCancellation: true, 
           noiseSuppression: enableNoiseSuppression, 
           autoGainControl: true,
-          // Advanced (Chrome)
-          channelCount: 1, // Mono is better for voice
-          sampleRate: 48000, 
+          // Chrome specific aggressive settings
           googEchoCancellation: true,
           googAutoGainControl: true,
           googNoiseSuppression: enableNoiseSuppression,
-          googHighpassFilter: true, // Removes rumble
-          googTypingNoiseDetection: true, // Attempts to remove typing
-          googBeamforming: false 
+          googHighpassFilter: true, // Cuts rumbling
+          googTypingNoiseDetection: true // Tries to cut typing
       } 
   });
 
-  const saveAudioSettings = (mic: string, spk: string, nc: boolean, sound: boolean) => { 
-      setSelectedMicId(mic); setSelectedSpeakerId(spk); setEnableNoiseSuppression(nc); setSoundEnabled(sound);
-      localStorage.setItem("eco_mic_id", mic); localStorage.setItem("eco_speaker_id", spk); localStorage.setItem("eco_nc", String(nc)); localStorage.setItem("eco_sound", String(sound));
+  const saveAudioSettings = (mic: string, spk: string, nc: boolean, sound: boolean, threshold: number) => { 
+      setSelectedMicId(mic); setSelectedSpeakerId(spk); setEnableNoiseSuppression(nc); setSoundEnabled(sound); setVoiceThreshold(threshold);
+      localStorage.setItem("eco_mic_id", mic); localStorage.setItem("eco_speaker_id", spk); localStorage.setItem("eco_nc", String(nc)); localStorage.setItem("eco_sound", String(sound)); localStorage.setItem("eco_voice_threshold", String(threshold));
       if(sound) playSoundEffect("click"); 
   };
 
@@ -412,7 +497,7 @@ export default function EcoTalkApp() {
           if (firstText) selectChannel(firstText);
       }
   };
-  const toggleMute = () => { if (!myStream) return; playSound("click"); const track = myStream.getAudioTracks()[0]; if (!track) return; track.enabled = !track.enabled; setIsMuted(!track.enabled); };
+  const toggleMute = () => { if (!myStream) return; playSound("click"); const track = myStream.getAudioTracks()[0]; if (!track) return; /* Toggle handled by Hook via state */ setIsMuted(!isMuted); };
   const selectDM = (friend: any) => { if (friend.id === currentUser?.id) return; setActiveServerId(null); if (activeVoiceChannel) leaveVoiceChannel(); setActiveDM(friend); setActiveChannel(null); setMessages([]); const me = currentUser; if (!me) return; const ids = [me.id, friend.id].sort(); socket.emit("join_dm", { roomName: `dm_${ids[0]}_${ids[1]}` }); playSound("click"); };
   const sendMessage = () => { const me = currentUser; if (!me || !inputText) return; socket.emit("send_message", { content: inputText, author: me.username, userId: me.id, channelId: activeServerId ? activeChannel?.id : null, dmRoom: activeDM ? `dm_${[me.id, activeDM.id].sort().join("_")}` : null, }); setInputText(""); const room = activeServerId ? `channel_${activeChannel?.id}` : activeDM ? `dm_${[me.id, activeDM.id].sort().join("_")}` : null; if (room) socket.emit("stop_typing", { room }); };
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onloadend = () => socket.emit("send_message", { content: null, imageUrl: reader.result, type: "image", author: currentUser.username, userId: currentUser.id, channelId: activeServerId ? activeChannel?.id : null, dmRoom: activeDM ? `dm_${[currentUser.id, activeDM.id].sort().join("_")}` : null, }); reader.readAsDataURL(file); };
@@ -513,8 +598,6 @@ export default function EcoTalkApp() {
                                  <div className="flex flex-wrap gap-1 mt-1">{m.reactions?.map((r:any) => (<div key={r.id} className="bg-[var(--bg-tertiary)] px-1.5 py-0.5 rounded text-[10px] border border-[var(--border)] text-[var(--text-secondary)]" title={r.user.username}>{r.emoji}</div>))}</div>
                               </div>
                            </div>
-                           
-                           {/* === MESSAGE ACTIONS (HOVER) === */}
                            <div className="absolute right-2 top-[-10px] hidden group-hover:flex items-center gap-1 bg-[var(--bg-primary)] border border-[var(--border)] shadow-sm rounded-md px-1 py-0.5 z-10">
                                 <button onClick={() => toggleReaction(m.id, "👍")} className="hover:bg-[var(--bg-tertiary)] p-1 rounded text-xs grayscale hover:grayscale-0 transition-all">👍</button>
                                 <button onClick={() => toggleReaction(m.id, "😂")} className="hover:bg-[var(--bg-tertiary)] p-1 rounded text-xs grayscale hover:grayscale-0 transition-all">😂</button>
@@ -553,12 +636,19 @@ export default function EcoTalkApp() {
                 <input className="text-center font-bold text-lg border-b border-transparent hover:border-gray-300 focus:border-green-500 outline-none bg-transparent" value={editUserName} onChange={e=>setEditUserName(e.target.value)}/>
               </div>
               <div className="mb-6"><h4 className="text-sm font-bold text-[var(--text-secondary)] mb-2 border-b border-[var(--border)] pb-1 flex items-center"><Palette size={14} className="mr-1"/> THEME</h4><div className="flex gap-2 mt-2"><button onClick={() => setTheme('minimal')} className={`flex-1 py-1 text-xs font-bold rounded border ${theme==='minimal'?'bg-gray-200 text-black border-black':'border-gray-300 text-gray-500'}`}>Minimal</button><button onClick={() => setTheme('neon')} className={`flex-1 py-1 text-xs font-bold rounded border ${theme==='neon'?'bg-slate-900 text-cyan-400 border-cyan-400':'border-gray-300 text-gray-500'}`}>Neon</button><button onClick={() => setTheme('vintage')} className={`flex-1 py-1 text-xs font-bold rounded border ${theme==='vintage'?'bg-amber-100 text-amber-900 border-amber-900':'border-gray-300 text-gray-500'}`}>Vintage</button></div></div>
-              <div className="mb-6"><h4 className="text-sm font-bold text-[var(--text-secondary)] mb-2 border-b border-[var(--border)] pb-1">AUDIO SETTINGS</h4><label className="text-xs font-bold text-[var(--text-secondary)] block mb-1">MICROPHONE</label><select className="w-full p-2 border rounded mb-3 text-sm bg-[var(--bg-tertiary)]" value={selectedMicId} onChange={(e) => saveAudioSettings(e.target.value, selectedSpeakerId, enableNoiseSuppression, soundEnabled)}><option value="">Default</option>{audioInputs.map(d => <option key={d.deviceId} value={d.deviceId}>{d.label || `Microphone ${d.deviceId}`}</option>)}</select><label className="text-xs font-bold text-[var(--text-secondary)] block mb-1">SPEAKERS</label><select className="w-full p-2 border rounded text-sm bg-[var(--bg-tertiary)] mb-3" value={selectedSpeakerId} onChange={(e) => saveAudioSettings(selectedMicId, e.target.value, enableNoiseSuppression, soundEnabled)}><option value="">Default</option>{audioOutputs.map(d => <option key={d.deviceId} value={d.deviceId}>{d.label || `Speaker ${d.deviceId}`}</option>)}</select>
-              <div className="flex items-center justify-between p-2 border rounded bg-[var(--bg-tertiary)] cursor-pointer mb-2" onClick={() => saveAudioSettings(selectedMicId, selectedSpeakerId, !enableNoiseSuppression, soundEnabled)}><div className="flex items-center text-sm font-bold">{enableNoiseSuppression && <Zap size={16} className="text-yellow-500 mr-2"/>}{!enableNoiseSuppression && <ZapOff size={16} className="text-gray-400 mr-2"/>} Noise Suppression (AI)</div><div className={`w-8 h-4 rounded-full relative transition-colors ${enableNoiseSuppression ? 'bg-green-500' : 'bg-gray-400'}`}><div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${enableNoiseSuppression ? 'left-4.5' : 'left-0.5'}`}></div></div></div>
-              <div className="flex items-center justify-between p-2 border rounded bg-[var(--bg-tertiary)] cursor-pointer" onClick={() => saveAudioSettings(selectedMicId, selectedSpeakerId, enableNoiseSuppression, !soundEnabled)}><div className="flex items-center text-sm font-bold">{soundEnabled && <Volume2 size={16} className="text-blue-500 mr-2"/>}{!soundEnabled && <VolumeX size={16} className="text-gray-400 mr-2"/>} Sound Effects</div><div className={`w-8 h-4 rounded-full relative transition-colors ${soundEnabled ? 'bg-blue-500' : 'bg-gray-400'}`}><div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${soundEnabled ? 'left-4.5' : 'left-0.5'}`}></div></div></div>
+              <div className="mb-6"><h4 className="text-sm font-bold text-[var(--text-secondary)] mb-2 border-b border-[var(--border)] pb-1">AUDIO SETTINGS</h4><label className="text-xs font-bold text-[var(--text-secondary)] block mb-1">MICROPHONE</label><select className="w-full p-2 border rounded mb-3 text-sm bg-[var(--bg-tertiary)]" value={selectedMicId} onChange={(e) => saveAudioSettings(e.target.value, selectedSpeakerId, enableNoiseSuppression, soundEnabled, voiceThreshold)}><option value="">Default</option>{audioInputs.map(d => <option key={d.deviceId} value={d.deviceId}>{d.label || `Microphone ${d.deviceId}`}</option>)}</select><label className="text-xs font-bold text-[var(--text-secondary)] block mb-1">SPEAKERS</label><select className="w-full p-2 border rounded text-sm bg-[var(--bg-tertiary)] mb-3" value={selectedSpeakerId} onChange={(e) => saveAudioSettings(selectedMicId, e.target.value, enableNoiseSuppression, soundEnabled, voiceThreshold)}><option value="">Default</option>{audioOutputs.map(d => <option key={d.deviceId} value={d.deviceId}>{d.label || `Speaker ${d.deviceId}`}</option>)}</select>
+              <div className="flex items-center justify-between p-2 border rounded bg-[var(--bg-tertiary)] cursor-pointer mb-2" onClick={() => saveAudioSettings(selectedMicId, selectedSpeakerId, !enableNoiseSuppression, soundEnabled, voiceThreshold)}><div className="flex items-center text-sm font-bold">{enableNoiseSuppression && <Zap size={16} className="text-yellow-500 mr-2"/>}{!enableNoiseSuppression && <ZapOff size={16} className="text-gray-400 mr-2"/>} Noise Suppression (AI)</div><div className={`w-8 h-4 rounded-full relative transition-colors ${enableNoiseSuppression ? 'bg-green-500' : 'bg-gray-400'}`}><div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${enableNoiseSuppression ? 'left-4.5' : 'left-0.5'}`}></div></div></div>
               
-              <div className="mt-4 border-t border-[var(--border)] pt-4"><h4 className="text-sm font-bold text-[var(--text-secondary)] mb-2 flex items-center"><Keyboard size={14} className="mr-1"/> HOTKEYS</h4><div className="flex items-center justify-between p-2 border rounded bg-[var(--bg-tertiary)]"><span className="text-sm font-bold">Toggle Mute</span><button onClick={() => setIsRecordingKey(true)} className={`px-3 py-1 rounded text-xs font-bold transition-all ${isRecordingKey ? 'bg-red-500 text-white animate-pulse' : (muteKey ? 'bg-blue-600 text-white' : 'bg-gray-400 text-white')}`}>{isRecordingKey ? "Press any key..." : (muteKey || "Click to Bind")}</button></div></div>
+              <div className="mb-2">
+                  <div className="flex justify-between items-center mb-1">
+                      <label className="text-xs font-bold text-[var(--text-secondary)] flex items-center"><Sliders size={12} className="mr-1"/> VOICE GATE (THRESHOLD)</label>
+                      <span className="text-xs font-mono">{voiceThreshold}%</span>
+                  </div>
+                  <input type="range" min="0" max="100" value={voiceThreshold} onChange={(e) => saveAudioSettings(selectedMicId, selectedSpeakerId, enableNoiseSuppression, soundEnabled, Number(e.target.value))} className="w-full h-2 bg-[var(--border)] rounded-lg appearance-none cursor-pointer"/>
+              </div>
 
+              <div className="flex items-center justify-between p-2 border rounded bg-[var(--bg-tertiary)] cursor-pointer" onClick={() => saveAudioSettings(selectedMicId, selectedSpeakerId, enableNoiseSuppression, !soundEnabled, voiceThreshold)}><div className="flex items-center text-sm font-bold">{soundEnabled && <Volume2 size={16} className="text-blue-500 mr-2"/>}{!soundEnabled && <VolumeX size={16} className="text-gray-400 mr-2"/>} Sound Effects</div><div className={`w-8 h-4 rounded-full relative transition-colors ${soundEnabled ? 'bg-blue-500' : 'bg-gray-400'}`}><div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${soundEnabled ? 'left-4.5' : 'left-0.5'}`}></div></div></div>
+              <div className="mt-4 border-t border-[var(--border)] pt-4"><h4 className="text-sm font-bold text-[var(--text-secondary)] mb-2 flex items-center"><Keyboard size={14} className="mr-1"/> HOTKEYS</h4><div className="flex items-center justify-between p-2 border rounded bg-[var(--bg-tertiary)]"><span className="text-sm font-bold">Toggle Mute</span><button onClick={() => setIsRecordingKey(true)} className={`px-3 py-1 rounded text-xs font-bold transition-all ${isRecordingKey ? 'bg-red-500 text-white animate-pulse' : (muteKey ? 'bg-blue-600 text-white' : 'bg-gray-400 text-white')}`}>{isRecordingKey ? "Press any key..." : (muteKey || "Click to Bind")}</button></div></div>
               <div className="mt-4 flex items-center gap-2"><button onClick={toggleMicTest} className={`flex-1 py-2 rounded text-sm font-bold transition-colors ${isTestingMic ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-gray-100 text-gray-900 hover:bg-gray-200'}`}>{isTestingMic ? "Stop Test" : "Check Microphone"}</button><audio ref={testAudioRef} hidden />{isTestingMic && <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse"></div>}</div></div>
               <div className="flex justify-end gap-2"><button onClick={closeSettings} className="px-4 py-2 text-[var(--text-secondary)]">Cancel</button><button onClick={updateUserProfile} className="bg-green-600 text-white px-4 py-2 rounded font-bold">Save</button></div>
             </div>
