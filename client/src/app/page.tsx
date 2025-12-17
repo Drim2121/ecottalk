@@ -6,7 +6,7 @@ import {
   Check, X, Settings, Trash2, UserMinus, Users, Volume2, Mic, MicOff, Smile, Edit2,
   Palette, Zap, ZapOff, Video, VideoOff, Monitor, MonitorOff, Volume1, VolumeX, Camera,
   Maximize, Minimize, Keyboard, Sliders, Volume, Headphones, HeadphoneOff, WifiOff, 
-  UploadCloud, ShoppingBag, Coins, Gift, Package
+  UploadCloud, ShoppingBag, Coins, Gift, Package, Star, Sparkles
 } from "lucide-react";
 import io, { Socket } from "socket.io-client";
 import Peer from "simple-peer";
@@ -37,12 +37,22 @@ const SHOP_ITEMS = [
   { id: 'frm_eco', type: 'frame', name: 'Eco Vibe', price: 300, rarity: 'rare', css: { border: '3px solid #32CD32', boxShadow: '0 0 10px #228B22' } },
   { id: 'frm_basic', type: 'frame', name: 'Iron Ring', price: 100, rarity: 'common', css: { border: '3px solid #6b7280' } },
 
-  // BUBBLES
+  // BUBBLES (New!)
   { id: 'bub_space', type: 'bubble', name: 'Space Void', price: 800, rarity: 'epic', css: { background: 'linear-gradient(135deg, #0f172a 0%, #312e81 100%)', border: '1px solid #6366f1', color: 'white' } },
   { id: 'bub_sunset', type: 'bubble', name: 'Sunset Glow', price: 500, rarity: 'rare', css: { background: 'linear-gradient(to right, #f97316, #db2777)', color: 'white' } },
   { id: 'bub_ghost', type: 'bubble', name: 'Ghost', price: 400, rarity: 'rare', css: { backgroundColor: 'rgba(255,255,255,0.1)', backdropFilter: 'blur(4px)', border: '1px solid rgba(255,255,255,0.2)' } },
   { id: 'bub_matrix', type: 'bubble', name: 'Matrix', price: 1000, rarity: 'legendary', css: { backgroundColor: 'black', color: '#00FF00', border: '1px solid #00FF00', fontFamily: 'monospace' } },
 ];
+
+// ===== SOUNDS (Base64) =====
+const SOUNDS = {
+  msg: "data:audio/mpeg;base64,//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
+  join: "data:audio/mp3;base64,//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
+  leave: "data:audio/mp3;base64,//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
+  click: "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=",
+  cash: "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=",
+  rare: "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=" 
+};
 
 // ===== THEMES =====
 const THEME_STYLES = `
@@ -69,54 +79,52 @@ let globalAudioContext: AudioContext | null = null;
 const getAudioContext = () => { if (!globalAudioContext) { const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext; if (AudioContextClass) globalAudioContext = new AudioContextClass(); } return globalAudioContext; };
 
 const playSoundEffect = (type: 'msg' | 'join' | 'leave' | 'click' | 'cash' | 'rare') => {
-  try {
-    const ctx = getAudioContext();
-    if (!ctx) return;
-    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  if (ctx.state === 'suspended') ctx.resume().catch(() => {});
 
-    if (type === 'click') {
-        const osc = ctx.createOscillator(); const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
-        osc.frequency.setValueAtTime(800, ctx.currentTime);
-        gain.gain.setValueAtTime(0.05, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05);
-        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.05);
-    } else if (type === 'cash') {
-        const osc = ctx.createOscillator(); const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
-        osc.frequency.setValueAtTime(1200, ctx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(1800, ctx.currentTime + 0.1);
-        gain.gain.setValueAtTime(0.1, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
-        osc.type = 'triangle';
-        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.4);
-    } else if (type === 'rare') {
-        const osc = ctx.createOscillator(); const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
-        osc.frequency.setValueAtTime(400, ctx.currentTime);
-        osc.frequency.linearRampToValueAtTime(1000, ctx.currentTime + 0.5);
-        gain.gain.setValueAtTime(0.2, ctx.currentTime);
-        gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 1);
-        osc.type = 'square';
-        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 1);
-    } else {
-        const osc = ctx.createOscillator(); const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
-        const now = ctx.currentTime;
-        osc.type = 'sine';
-        if (type === 'msg') {
-            osc.frequency.setValueAtTime(440, now); osc.frequency.setValueAtTime(554, now + 0.1);
-            gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.4);
-        } else if (type === 'join') {
-            osc.frequency.setValueAtTime(300, now); osc.frequency.linearRampToValueAtTime(600, now + 0.2);
-            gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.3);
-        } else if (type === 'leave') {
-            osc.frequency.setValueAtTime(400, now); osc.frequency.linearRampToValueAtTime(200, now + 0.2);
-            gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.3);
-        }
-        osc.start(now); osc.stop(now + 0.4);
+  if (type === 'click') {
+    const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.setValueAtTime(800, ctx.currentTime);
+    gain.gain.setValueAtTime(0.05, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05);
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.05);
+  } else if (type === 'cash') {
+    const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.setValueAtTime(1200, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(1800, ctx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.1, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+    osc.type = 'triangle';
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.4);
+  } else if (type === 'rare') {
+    const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.setValueAtTime(400, ctx.currentTime);
+    osc.frequency.linearRampToValueAtTime(1000, ctx.currentTime + 0.5);
+    gain.gain.setValueAtTime(0.2, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 1);
+    osc.type = 'square';
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 1);
+  } else {
+    const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    const now = ctx.currentTime;
+    osc.type = 'sine';
+    if (type === 'msg') {
+        osc.frequency.setValueAtTime(440, now); osc.frequency.setValueAtTime(554, now + 0.1);
+        gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.4);
+    } else if (type === 'join') {
+        osc.frequency.setValueAtTime(300, now); osc.frequency.linearRampToValueAtTime(600, now + 0.2);
+        gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.3);
+    } else if (type === 'leave') {
+        osc.frequency.setValueAtTime(400, now); osc.frequency.linearRampToValueAtTime(200, now + 0.2);
+        gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.3);
     }
-  } catch(e) { console.log("Audio error", e); }
+    osc.start(now); osc.stop(now + 0.4);
+  }
 };
 
 // === UNIVERSAL ANALYZER ===
@@ -163,6 +171,7 @@ const useProcessedStream = (rawStream: MediaStream | null, threshold: number, is
         if (gainNodeRef.current) {
             const ctx = gainNodeRef.current.context;
             gainNodeRef.current.gain.cancelScheduledValues(ctx.currentTime);
+            // Software Mute Logic
             gainNodeRef.current.gain.setValueAtTime(isMuted ? 0 : 1, ctx.currentTime);
         }
     }, [isMuted]);
@@ -494,25 +503,6 @@ export default function EcoTalkApp() {
       }, 2000);
   };
 
-  const openUserProfile = () => { 
-      if (!currentUser) return; 
-      // Close other modals
-      setShowShop(false);
-      
-      setEditUserName(currentUser.username); 
-      setEditUserAvatar(currentUser.avatar); 
-      setShowUserSettings(true); 
-      playSound("click");
-      
-      // Try to get mic access, but don't block opening if it fails (http issues)
-      navigator.mediaDevices.getUserMedia({ audio: true }).then(() => { 
-          navigator.mediaDevices.enumerateDevices().then((d) => { 
-              setAudioInputs(d.filter((x) => x.kind === "audioinput")); 
-              setAudioOutputs(d.filter((x) => x.kind === "audiooutput")); 
-          }); 
-      }).catch((e) => console.log("Perms denied or HTTP limitation")); 
-  };
-
   useEffect(() => {
     const handleOffline = () => setIsOffline(true);
     const handleOnline = () => { setIsOffline(false); socket.connect(); };
@@ -656,7 +646,7 @@ export default function EcoTalkApp() {
   const openChannelSettings = (e: any, channel: any) => { e.stopPropagation(); setEditingChannel(channel); setNewChannelName(channel.name); playSound("click"); };
   const updateChannel = async () => { if (!editingChannel) return; const res = await fetch(`${SOCKET_URL}/api/channels/${editingChannel.id}`, { method: "PUT", headers: { "Content-Type": "application/json", Authorization: token! }, body: JSON.stringify({ name: newChannelName }), }); if (res.ok) { setEditingChannel(null); selectServer(activeServerId!); } };
   const deleteChannel = async () => { if (!editingChannel || !confirm("Delete channel?")) return; const res = await fetch(`${SOCKET_URL}/api/channels/${editingChannel.id}`, { method: "DELETE", headers: { Authorization: token! }, }); if (res.ok) { if (activeChannel?.id === editingChannel.id) setActiveChannel(null); setEditingChannel(null); selectServer(activeServerId!); } };
-  
+  const openUserProfile = () => { if (!currentUser) return; setEditUserName(currentUser.username); setEditUserAvatar(currentUser.avatar); navigator.mediaDevices.getUserMedia({ audio: true }).then(() => { navigator.mediaDevices.enumerateDevices().then((d) => { setAudioInputs(d.filter((x) => x.kind === "audioinput")); setAudioOutputs(d.filter((x) => x.kind === "audiooutput")); }); }).catch((e) => console.log("Perms denied")); setShowUserSettings(true); playSound("click"); };
   const getMediaConstraints = (video: boolean) => ({ video: video ? { width: 640, height: 480, facingMode: "user" } : false, audio: { deviceId: selectedMicId ? { exact: selectedMicId } : undefined, echoCancellation: true, noiseSuppression: enableNoiseSuppression, autoGainControl: true, googEchoCancellation: true, googAutoGainControl: true, googNoiseSuppression: enableNoiseSuppression, googHighpassFilter: true, googTypingNoiseDetection: true } });
   const saveAudioSettings = (mic: string, spk: string, nc: boolean, sound: boolean, threshold: number) => { setSelectedMicId(mic); setSelectedSpeakerId(spk); setEnableNoiseSuppression(nc); setSoundEnabled(sound); setVoiceThreshold(threshold); localStorage.setItem("eco_mic_id", mic); localStorage.setItem("eco_speaker_id", spk); localStorage.setItem("eco_nc", String(nc)); localStorage.setItem("eco_sound", String(sound)); localStorage.setItem("eco_voice_threshold", String(threshold)); if(sound) playSoundEffect("click"); };
   const toggleMicTest = async () => { if (isTestingMic) { if (testAudioRef.current?.srcObject) { (testAudioRef.current.srcObject as MediaStream).getTracks().forEach((t) => t.stop()); testAudioRef.current.srcObject = null; } setIsTestingMic(false); return; } try { const constraints = { audio: { deviceId: selectedMicId ? { exact: selectedMicId } : undefined, echoCancellation: true, noiseSuppression: enableNoiseSuppression, autoGainControl: true } }; const stream = await navigator.mediaDevices.getUserMedia(constraints); if (testAudioRef.current) { testAudioRef.current.srcObject = stream; const anyAudio = testAudioRef.current as any; if (selectedSpeakerId && typeof anyAudio.setSinkId === "function") { await anyAudio.setSinkId(selectedSpeakerId); } await testAudioRef.current.play().catch(() => {}); } setIsTestingMic(true); } catch (e) { console.error(e); alert("Mic error"); } };
@@ -670,13 +660,8 @@ export default function EcoTalkApp() {
   const handleNotification = async (id: number, action: "ACCEPT" | "DECLINE") => { if (!token) return; if (action === "ACCEPT") { const notif = notifications.find((n) => n.id === id); if (notif?.type === "FRIEND_REQUEST" && notif.sender) { setMyFriends((prev) => (prev.find((x) => x.id === notif.sender.id) ? prev : [...prev, notif.sender])); } } setNotifications((prev) => prev.filter((n) => n.id !== id)); await fetch(`${SOCKET_URL}/api/notifications/respond`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: token }, body: JSON.stringify({ notificationId: id, action }), }); if (action === "ACCEPT") fetchUserData(token); playSound("click"); };
   const addFriend = async () => { if (!token) return; const res = await fetch(`${SOCKET_URL}/api/friends/invite`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: token }, body: JSON.stringify({ username: friendName }), }); if (res.ok) { setFriendName(""); setShowAddFriend(false); alert("Sent!"); } else alert("Error"); };
   const inviteUser = async () => { if (!token || !activeServerId) return; const res = await fetch(`${SOCKET_URL}/api/servers/invite`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: token }, body: JSON.stringify({ serverId: activeServerId, username: inviteUserName }), }); if (res.ok) { alert("Sent!"); setInviteUserName(""); setShowInvite(false); } else { const data = await res.json(); alert(data.error); } };
-  
   const selectServer = async (serverId: number) => { 
-      if (!token) return;
-      // Close overlaps
-      setShowShop(false);
-      setShowUserSettings(false);
-      
+      if (!token) return; 
       setActiveServerId(serverId); setActiveDM(null); 
       if (activeVoiceChannel) leaveVoiceChannel(); 
       const res = await fetch(`${SOCKET_URL}/api/server/${serverId}`, { headers: { Authorization: token } }); 
@@ -697,7 +682,7 @@ export default function EcoTalkApp() {
     if (c.type === 'voice') {
         if (activeVoiceChannel && activeVoiceChannel !== c.id) leaveVoiceChannel();
         setActiveChannel(c); setActiveVoiceChannel(c.id); playSound("join");
-        navigator.mediaDevices.getUserMedia(getMediaConstraints(false)).then((s) => { setMyStream(s); setIsMuted(false); setIsDeafened(false); setIsVideoOn(false); setIsScreenSharing(false); }).catch((e) => { console.error(e); alert("Mic Error (Check HTTPS)"); setActiveVoiceChannel(null); });
+        navigator.mediaDevices.getUserMedia(getMediaConstraints(false)).then((s) => { setMyStream(s); setIsMuted(false); setIsDeafened(false); setIsVideoOn(false); setIsScreenSharing(false); }).catch((e) => { console.error(e); alert("Mic Error"); setActiveVoiceChannel(null); });
     } else {
         setActiveChannel(c); setMessages([]); socket.emit("join_channel", { channelId: c.id }); playSound("click"); 
     }
@@ -748,22 +733,7 @@ export default function EcoTalkApp() {
       if (newState) setIsMuted(true);
   };
 
-  const selectDM = (friend: any) => { 
-      if (friend.id === currentUser?.id) return; 
-      // Close overlaps
-      setShowShop(false);
-      setShowUserSettings(false);
-
-      setActiveServerId(null); 
-      if (activeVoiceChannel) leaveVoiceChannel(); 
-      setActiveDM(friend); 
-      setActiveChannel(null); 
-      setMessages([]); 
-      const me = currentUser; if (!me) return; 
-      const ids = [me.id, friend.id].sort(); 
-      socket.emit("join_dm", { roomName: `dm_${ids[0]}_${ids[1]}` }); 
-      playSound("click"); 
-  };
+  const selectDM = (friend: any) => { if (friend.id === currentUser?.id) return; setActiveServerId(null); if (activeVoiceChannel) leaveVoiceChannel(); setActiveDM(friend); setActiveChannel(null); setMessages([]); const me = currentUser; if (!me) return; const ids = [me.id, friend.id].sort(); socket.emit("join_dm", { roomName: `dm_${ids[0]}_${ids[1]}` }); playSound("click"); };
   const sendMessage = () => { const me = currentUser; if (!me || !inputText) return; socket.emit("send_message", { content: inputText, author: me.username, userId: me.id, channelId: activeServerId ? activeChannel?.id : null, dmRoom: activeDM ? `dm_${[me.id, activeDM.id].sort().join("_")}` : null, userCustom: myCustomization }); setInputText(""); const room = activeServerId ? `channel_${activeChannel?.id}` : activeDM ? `dm_${[me.id, activeDM.id].sort().join("_")}` : null; if (room) socket.emit("stop_typing", { room }); };
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onloadend = () => socket.emit("send_message", { content: null, imageUrl: reader.result, type: "image", author: currentUser.username, userId: currentUser.id, channelId: activeServerId ? activeChannel?.id : null, dmRoom: activeDM ? `dm_${[currentUser.id, activeDM.id].sort().join("_")}` : null, userCustom: myCustomization }); reader.readAsDataURL(file); };
   const startEditing = (msg: any) => { setEditingMessageId(msg.id); setEditInputText(msg.content); };
@@ -800,7 +770,7 @@ export default function EcoTalkApp() {
 
       <div className={`flex w-full h-full`}>
         {/* SIDEBAR */}
-        <div className="w-18 bg-gray-900 flex flex-col items-center py-4 space-y-3 z-20 text-white"><div onClick={() => { setActiveServerId(null); setShowShop(false); }} className={`w-12 h-12 rounded-2xl flex items-center justify-center cursor-pointer ${activeServerId===null && !showShop ? 'bg-indigo-500 text-white' : 'bg-gray-700 text-gray-200 hover:bg-green-600'}`}><MessageSquare size={24}/></div><div className="w-8 h-0.5 bg-gray-700 rounded"></div>{myServers.map(s => <div key={s.id} onClick={() => selectServer(s.id)} className={`w-12 h-12 rounded-full flex items-center justify-center cursor-pointer font-bold overflow-hidden ${activeServerId===s.id ? 'rounded-xl bg-green-500 text-white' : 'bg-gray-700 text-gray-200'}`} title={s.name}>{s.icon && s.icon.startsWith('data:') ? <img src={s.icon} className="w-full h-full object-cover"/> : s.name[0]}</div>)}<div onClick={() => setShowCreateServer(true)} className="w-12 h-12 bg-gray-800 rounded-full flex items-center justify-center text-green-400 cursor-pointer"><Plus size={24}/></div><div onClick={() => { setShowShop(true); setActiveServerId(null); }} className={`w-12 h-12 rounded-full flex items-center justify-center cursor-pointer ${showShop ? 'bg-yellow-500 text-white' : 'bg-gray-800 text-yellow-400 hover:bg-yellow-600/20'}`}><ShoppingBag size={24}/></div></div>
+        <div className="w-18 bg-gray-900 flex flex-col items-center py-4 space-y-3 z-20 text-white"><div onClick={() => setActiveServerId(null)} className={`w-12 h-12 rounded-2xl flex items-center justify-center cursor-pointer ${activeServerId===null ? 'bg-indigo-500 text-white' : 'bg-gray-700 text-gray-200 hover:bg-green-600'}`}><MessageSquare size={24}/></div><div className="w-8 h-0.5 bg-gray-700 rounded"></div>{myServers.map(s => <div key={s.id} onClick={() => selectServer(s.id)} className={`w-12 h-12 rounded-full flex items-center justify-center cursor-pointer font-bold overflow-hidden ${activeServerId===s.id ? 'rounded-xl bg-green-500 text-white' : 'bg-gray-700 text-gray-200'}`} title={s.name}>{s.icon && s.icon.startsWith('data:') ? <img src={s.icon} className="w-full h-full object-cover"/> : s.name[0]}</div>)}<div onClick={() => setShowCreateServer(true)} className="w-12 h-12 bg-gray-800 rounded-full flex items-center justify-center text-green-400 cursor-pointer"><Plus size={24}/></div><div onClick={() => setShowShop(true)} className="w-12 h-12 bg-gray-800 rounded-full flex items-center justify-center text-yellow-400 cursor-pointer hover:bg-yellow-600/20"><ShoppingBag size={24}/></div></div>
         
         {/* CHANNEL LIST */}
         <div className="w-60 bg-[var(--bg-secondary)] border-r border-[var(--border)] flex flex-col transition-colors relative">
