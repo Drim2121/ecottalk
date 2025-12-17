@@ -5,7 +5,7 @@ import {
   Hash, Send, Plus, MessageSquare, LogOut, Paperclip, UserPlus, PhoneOff, Bell,
   Check, X, Settings, Trash2, UserMinus, Users, Volume2, Mic, MicOff, Smile, Edit2,
   Palette, Zap, ZapOff, Video, VideoOff, Monitor, MonitorOff, Volume1, VolumeX, Camera,
-  Maximize, Minimize, Keyboard, Sliders, Volume
+  Maximize, Minimize, Keyboard, Sliders, Volume, Headphones, HeadphonesOff // Добавили иконки наушников
 } from "lucide-react";
 import io, { Socket } from "socket.io-client";
 import Peer from "simple-peer";
@@ -18,7 +18,8 @@ const SOUNDS = {
   msg: "data:audio/mpeg;base64,//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
   join: "data:audio/mp3;base64,//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
   leave: "data:audio/mp3;base64,//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
-  click: "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=" 
+  click: "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=",
+  deafen: "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=" // Placeholder for deafen sound
 };
 
 // ===== THEMES =====
@@ -102,32 +103,33 @@ const useStreamAnalyzer = (stream: MediaStream | null) => {
     return isTalking;
 };
 
-// === PRO VOICE PROCESSING HOOK (INSTANT MUTE WITHOUT DISCONNECT) ===
+// === PRO VOICE PROCESSING HOOK (MIXER + GATE) ===
 const useProcessedStream = (rawStream: MediaStream | null, threshold: number, isMuted: boolean) => {
     const [processedStream, setProcessedStream] = useState<MediaStream | null>(null);
     const gainNodeRef = useRef<GainNode | null>(null);
-    const isMutedRef = useRef(isMuted);
-    const thresholdRef = useRef(threshold);
 
-    // Keep refs updated to avoid re-running the main effect
-    useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
-    useEffect(() => { thresholdRef.current = threshold; }, [threshold]);
+    // Apply Mute Effect Immediately via Ref to avoid stream recreation
+    useEffect(() => {
+        if (gainNodeRef.current) {
+            const ctx = gainNodeRef.current.context;
+            // Immediate mute/unmute
+            gainNodeRef.current.gain.cancelScheduledValues(ctx.currentTime);
+            gainNodeRef.current.gain.setValueAtTime(isMuted ? 0 : 1, ctx.currentTime);
+        }
+    }, [isMuted]);
 
     useEffect(() => {
         if (!rawStream) return;
-        
-        // If it's a screen share or has no audio, pass through
-        if (rawStream.getVideoTracks().length > 0 || rawStream.getAudioTracks().length === 0) {
-             setProcessedStream(rawStream);
-             return;
-        }
+        // If screen sharing (video present), bypass gate
+        if (rawStream.getVideoTracks().length > 0) { setProcessedStream(rawStream); return; }
+        if (rawStream.getAudioTracks().length === 0) { setProcessedStream(rawStream); return; }
 
         const ctx = getAudioContext();
         if (!ctx) return;
 
         const source = ctx.createMediaStreamSource(rawStream);
         const destination = ctx.createMediaStreamDestination();
-        const gainNode = ctx.createGain(); // The Gate/Mute controller
+        const gainNode = ctx.createGain();
         const analyser = ctx.createAnalyser();
         analyser.fftSize = 512;
 
@@ -135,56 +137,38 @@ const useProcessedStream = (rawStream: MediaStream | null, threshold: number, is
         analyser.connect(gainNode);
         gainNode.connect(destination);
         
-        // Store gain node reference for later access
-        gainNodeRef.current = gainNode;
+        gainNodeRef.current = gainNode; // Store ref for immediate mute
 
         let interval: any;
-
         const processAudio = () => {
-            const currentMute = isMutedRef.current;
-            const currentThresh = thresholdRef.current;
-            
-            if(currentMute) {
-                // Instant mute
-                gainNode.gain.setTargetAtTime(0, ctx.currentTime, 0.01);
-                return;
-            }
+            // If physically muted, don't run gate logic, keep it 0
+            if (gainNodeRef.current?.gain.value === 0 && isMuted) return;
 
             const data = new Uint8Array(analyser.frequencyBinCount);
             analyser.getByteFrequencyData(data);
-            let sum = 0;
-            for (let i = 0; i < data.length; i++) sum += data[i];
-            const average = sum / data.length;
-
-            if (average > currentThresh) {
-                // Open Gate
-                gainNode.gain.setTargetAtTime(1, ctx.currentTime, 0.05);
-            } else {
-                // Close Gate (softly)
-                gainNode.gain.setTargetAtTime(0, ctx.currentTime, 0.2);
+            let sum = 0; for (let i = 0; i < data.length; i++) sum += data[i];
+            
+            // If not muted by button, apply Noise Gate
+            if (!isMuted) {
+                if ((sum / data.length) > threshold) { 
+                    gainNode.gain.setTargetAtTime(1, ctx.currentTime, 0.05); 
+                } else { 
+                    gainNode.gain.setTargetAtTime(0, ctx.currentTime, 0.2); 
+                }
             }
         };
-
         interval = setInterval(processAudio, 50);
-        
-        // Create new stream, but THIS effect only runs when rawStream changes (device change)
-        // NOT when isMuted changes.
         const newTracks = [...destination.stream.getAudioTracks(), ...rawStream.getVideoTracks()];
         setProcessedStream(new MediaStream(newTracks));
 
-        return () => {
-            clearInterval(interval);
-            source.disconnect();
-            analyser.disconnect();
-            gainNode.disconnect();
-        };
-    }, [rawStream]); // Removed isMuted and threshold from dependencies to prevent stream recreation
+        return () => { clearInterval(interval); source.disconnect(); analyser.disconnect(); gainNode.disconnect(); };
+    }, [rawStream, threshold]); // Removed isMuted from deps to prevent re-creation
 
     return processedStream;
 };
 
 // --- COMPONENTS ---
-const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, username, outputDeviceId, isScreenShare }: { stream: MediaStream | null; isLocal: boolean; userId: string; userAvatar?: string; username?: string; outputDeviceId?: string; isScreenShare?: boolean; }) => {
+const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, username, outputDeviceId, isScreenShare, globalDeaf }: { stream: MediaStream | null; isLocal: boolean; userId: string; userAvatar?: string; username?: string; outputDeviceId?: string; isScreenShare?: boolean; globalDeaf?: boolean }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const isSpeaking = useStreamAnalyzer(stream); 
@@ -198,6 +182,7 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
     const checkStatus = () => {
         setHasVideo(stream.getVideoTracks().length > 0 && stream.getVideoTracks()[0].enabled);
         const audioTrack = stream.getAudioTracks()[0];
+        // If track is disabled OR gain is 0 (software mute), consider it muted
         setIsAudioEnabled(audioTrack ? audioTrack.enabled : false);
     };
     const statusInterval = setInterval(checkStatus, 500);
@@ -220,9 +205,13 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
   const objectFitClass = (isScreenShare || isFullscreen) ? 'object-contain' : 'object-cover';
   const containerClass = isFullscreen ? 'fixed inset-0 z-50 bg-black rounded-none flex flex-col items-center justify-center' : 'flex flex-col items-center justify-center p-2 h-full w-full relative bg-black/40 rounded-xl overflow-hidden border border-white/10 group transition-all';
 
+  // LOGIC: If I am deafened (globalDeaf), mute EVERYONE remote. 
+  // Local video is always muted to prevent echo.
+  const shouldMuteVideoElement = isLocal || (globalDeaf === true);
+
   return (
     <div ref={containerRef} className={containerClass}>
-      <video ref={videoRef} autoPlay playsInline muted={isLocal} className={`absolute inset-0 w-full h-full ${objectFitClass} transition-all duration-300 ${hasVideo ? 'opacity-100' : 'opacity-0'} ${isLocal && !isScreenShare ? 'scale-x-[-1]' : ''}`} />
+      <video ref={videoRef} autoPlay playsInline muted={shouldMuteVideoElement} className={`absolute inset-0 w-full h-full ${objectFitClass} transition-all duration-300 ${hasVideo ? 'opacity-100' : 'opacity-0'} ${isLocal && !isScreenShare ? 'scale-x-[-1]' : ''}`} />
       {!hasVideo && (
         <div className="z-10 flex flex-col items-center">
             <div className={`relative w-24 h-24 rounded-full p-1 transition-all duration-150 ${isSpeaking ? "bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.6)] scale-105" : "bg-gray-700"}`}>
@@ -240,11 +229,12 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
 });
 UserMediaComponent.displayName = "UserMediaComponent";
 
-const GroupPeerWrapper = ({ peer, peerID, outputDeviceId, allUsers }: { peer: Peer.Instance; peerID: string; outputDeviceId?: string; allUsers: any[]; }) => {
+const GroupPeerWrapper = ({ peer, peerID, outputDeviceId, allUsers, globalDeaf }: { peer: Peer.Instance; peerID: string; outputDeviceId?: string; allUsers: any[]; globalDeaf: boolean }) => {
   const [stream, setStream] = useState<MediaStream | null>(null);
   useEffect(() => { const onStream = (s: MediaStream) => setStream(s); peer.on("stream", onStream); if ((peer as any)._remoteStreams?.length) setStream((peer as any)._remoteStreams[0]); return () => { peer.off("stream", onStream); }; }, [peer]);
   const u = allUsers.find((x: any) => x.socketId === peerID);
-  return <UserMediaComponent stream={stream} isLocal={false} userId={peerID} userAvatar={u?.avatar} username={u?.username || "Connecting..."} outputDeviceId={outputDeviceId} isScreenShare={false}/>;
+  // Pass globalDeaf prop down
+  return <UserMediaComponent stream={stream} isLocal={false} userId={peerID} userAvatar={u?.avatar} username={u?.username || "Connecting..."} outputDeviceId={outputDeviceId} isScreenShare={false} globalDeaf={globalDeaf}/>;
 };
 
 // ============================ APP ============================
@@ -308,7 +298,11 @@ export default function EcoTalkApp() {
   const [myStream, setMyStream] = useState<MediaStream | null>(null);
   const [peers, setPeers] = useState<{ peerID: string; peer: Peer.Instance }[]>([]);
   const peersRef = useRef<{ peerID: string; peer: Peer.Instance }[]>([]);
-  const [isMuted, setIsMuted] = useState(false);
+  
+  // === MUTE & DEAFEN STATE ===
+  const [isMuted, setIsMuted] = useState(false); // Local Mic
+  const [isDeafened, setIsDeafened] = useState(false); // Global Audio Output
+  
   const [isVideoOn, setIsVideoOn] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   
@@ -412,34 +406,8 @@ export default function EcoTalkApp() {
   const handleNotification = async (id: number, action: "ACCEPT" | "DECLINE") => { if (!token) return; if (action === "ACCEPT") { const notif = notifications.find((n) => n.id === id); if (notif?.type === "FRIEND_REQUEST" && notif.sender) { setMyFriends((prev) => (prev.find((x) => x.id === notif.sender.id) ? prev : [...prev, notif.sender])); } } setNotifications((prev) => prev.filter((n) => n.id !== id)); await fetch(`${SOCKET_URL}/api/notifications/respond`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: token }, body: JSON.stringify({ notificationId: id, action }), }); if (action === "ACCEPT") fetchUserData(token); playSound("click"); };
   const addFriend = async () => { if (!token) return; const res = await fetch(`${SOCKET_URL}/api/friends/invite`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: token }, body: JSON.stringify({ username: friendName }), }); if (res.ok) { setFriendName(""); setShowAddFriend(false); alert("Sent!"); } else alert("Error"); };
   const inviteUser = async () => { if (!token || !activeServerId) return; const res = await fetch(`${SOCKET_URL}/api/servers/invite`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: token }, body: JSON.stringify({ serverId: activeServerId, username: inviteUserName }), }); if (res.ok) { alert("Sent!"); setInviteUserName(""); setShowInvite(false); } else { const data = await res.json(); alert(data.error); } };
-  const selectServer = async (serverId: number) => { 
-      if (!token) return; 
-      setActiveServerId(serverId); setActiveDM(null); 
-      if (activeVoiceChannel) leaveVoiceChannel(); 
-      const res = await fetch(`${SOCKET_URL}/api/server/${serverId}`, { headers: { Authorization: token } }); 
-      const data = await res.json(); 
-      setActiveServerData(data); 
-      setCurrentServerMembers(data.members.map((m: any) => m.user)); 
-      setMyServers((p) => p.map((s) => (s.id === serverId ? data : s))); 
-      
-      const firstText = data.channels.find((c: any) => c.type === 'text');
-      if (firstText) selectChannel(firstText);
-      else if (data.channels.length > 0) selectChannel(data.channels[0]);
-      
-      playSound("click"); 
-  };
-
-  const selectChannel = (c: any) => {
-    if (activeVoiceChannel === c.id) { setActiveChannel(c); return; }
-    if (c.type === 'voice') {
-        if (activeVoiceChannel && activeVoiceChannel !== c.id) leaveVoiceChannel();
-        setActiveChannel(c); setActiveVoiceChannel(c.id); playSound("join");
-        navigator.mediaDevices.getUserMedia(getMediaConstraints(false)).then((s) => { setMyStream(s); setIsMuted(false); setIsVideoOn(false); setIsScreenSharing(false); }).catch((e) => { console.error(e); alert("Mic Error"); setActiveVoiceChannel(null); });
-    } else {
-        setActiveChannel(c); setMessages([]); socket.emit("join_channel", { channelId: c.id }); playSound("click"); 
-    }
-  };
-
+  const selectServer = async (serverId: number) => { if (!token) return; setActiveServerId(serverId); setActiveDM(null); if (activeVoiceChannel) leaveVoiceChannel(); const res = await fetch(`${SOCKET_URL}/api/server/${serverId}`, { headers: { Authorization: token } }); const data = await res.json(); setActiveServerData(data); setCurrentServerMembers(data.members.map((m: any) => m.user)); setMyServers((p) => p.map((s) => (s.id === serverId ? data : s))); const firstText = data.channels.find((c: any) => c.type === 'text'); if (firstText) selectChannel(firstText); else if (data.channels.length > 0) selectChannel(data.channels[0]); playSound("click"); };
+  const selectChannel = (c: any) => { if (activeVoiceChannel === c.id) { setActiveChannel(c); return; } if (c.type === 'voice') { if (activeVoiceChannel && activeVoiceChannel !== c.id) leaveVoiceChannel(); setActiveChannel(c); setActiveVoiceChannel(c.id); playSound("join"); navigator.mediaDevices.getUserMedia(getMediaConstraints(false)).then((s) => { setMyStream(s); setIsMuted(false); setIsDeafened(false); setIsVideoOn(false); setIsScreenSharing(false); }).catch((e) => { console.error(e); alert("Mic Error"); setActiveVoiceChannel(null); }); } else { setActiveChannel(c); setMessages([]); socket.emit("join_channel", { channelId: c.id }); playSound("click"); } };
   const toggleVideo = async () => { if (!activeVoiceChannel) return; playSound("click"); if (isVideoOn || isScreenSharing) { const stream = await navigator.mediaDevices.getUserMedia(getMediaConstraints(false)); if (myStream) myStream.getTracks().forEach(t => t.stop()); setMyStream(stream); setIsVideoOn(false); setIsScreenSharing(false); } else { try { const stream = await navigator.mediaDevices.getUserMedia(getMediaConstraints(true)); if (myStream) myStream.getTracks().forEach(t => t.stop()); setMyStream(stream); setIsVideoOn(true); setIsScreenSharing(false); } catch (e) { console.error(e); alert("Could not start video"); } } };
   
   const toggleScreenShare = async () => { 
@@ -467,8 +435,30 @@ export default function EcoTalkApp() {
           } catch(e) { console.log("Screen share cancelled", e); } 
       } 
   };
-  const leaveVoiceChannel = () => { if (myStream) myStream.getTracks().forEach((track) => track.stop()); setMyStream(null); setActiveVoiceChannel(null); setIsVideoOn(false); setIsScreenSharing(false); playSound("leave"); if (activeChannel?.id === activeVoiceChannel) { const server = myServers.find((s) => s.id === activeServerId); const firstText = server?.channels?.find((c: any) => c.type === "text"); if (firstText) selectChannel(firstText); } };
-  const toggleMute = () => { if (!myStream) return; playSound("click"); setIsMuted(!isMuted); };
+  const leaveVoiceChannel = () => { if (myStream) myStream.getTracks().forEach((track) => track.stop()); setMyStream(null); setActiveVoiceChannel(null); setIsVideoOn(false); setIsScreenSharing(false); setIsDeafened(false); setIsMuted(false); playSound("leave"); if (activeChannel?.id === activeVoiceChannel) { const server = myServers.find((s) => s.id === activeServerId); const firstText = server?.channels?.find((c: any) => c.type === "text"); if (firstText) selectChannel(firstText); } };
+  
+  // === TOGGLE MUTE (Mic) ===
+  const toggleMute = () => { 
+      if (!myStream) return; 
+      playSound("click"); 
+      const newState = !isMuted;
+      setIsMuted(newState);
+      // Auto-undeafen if unmuting
+      if (!newState && isDeafened) setIsDeafened(false);
+  };
+
+  // === TOGGLE DEAFEN (Headphones) ===
+  const toggleDeafen = () => {
+      if (!myStream) return;
+      playSound("click");
+      const newState = !isDeafened;
+      setIsDeafened(newState);
+      if (newState) {
+          // If deafening, ensure mic is muted
+          setIsMuted(true);
+      }
+  };
+
   const selectDM = (friend: any) => { if (friend.id === currentUser?.id) return; setActiveServerId(null); if (activeVoiceChannel) leaveVoiceChannel(); setActiveDM(friend); setActiveChannel(null); setMessages([]); const me = currentUser; if (!me) return; const ids = [me.id, friend.id].sort(); socket.emit("join_dm", { roomName: `dm_${ids[0]}_${ids[1]}` }); playSound("click"); };
   const sendMessage = () => { const me = currentUser; if (!me || !inputText) return; socket.emit("send_message", { content: inputText, author: me.username, userId: me.id, channelId: activeServerId ? activeChannel?.id : null, dmRoom: activeDM ? `dm_${[me.id, activeDM.id].sort().join("_")}` : null, }); setInputText(""); const room = activeServerId ? `channel_${activeChannel?.id}` : activeDM ? `dm_${[me.id, activeDM.id].sort().join("_")}` : null; if (room) socket.emit("stop_typing", { room }); };
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onloadend = () => socket.emit("send_message", { content: null, imageUrl: reader.result, type: "image", author: currentUser.username, userId: currentUser.id, channelId: activeServerId ? activeChannel?.id : null, dmRoom: activeDM ? `dm_${[currentUser.id, activeDM.id].sort().join("_")}` : null, }); reader.readAsDataURL(file); };
@@ -517,7 +507,6 @@ export default function EcoTalkApp() {
                           <div className="flex items-center"><Volume2 size={16} className="mr-1"/> {c.name}</div>
                           {activeServerData?.ownerId === currentUser.id && <Settings size={12} className="opacity-0 group-hover:opacity-100 hover:text-[var(--accent)]" onClick={(e)=>openChannelSettings(e, c)}/>}
                       </div>
-                      {/* FIX: Ensure we use number key for voice states lookup */}
                       {voiceStates[Number(c.id)]?.map((u: any) => <div key={u.socketId} className="pl-6 flex items-center text-[var(--text-secondary)] text-xs py-1"><img src={u.avatar} className="w-4 h-4 rounded-full mr-2"/>{u.username}</div>)}
                    </div>
                 ))}
@@ -533,9 +522,16 @@ export default function EcoTalkApp() {
                       <span className="font-bold text-green-100">Voice Connected</span>
                       <span className="text-green-300 truncate">/ {myServers.find(s=>s.id===activeServerId)?.channels.find((c:any)=>c.id===activeVoiceChannel)?.name}</span>
                   </div>
-                  <div className="flex gap-1">
-                      <button onClick={toggleMute} className={`p-1.5 rounded hover:bg-black/20 ${isMuted ? 'bg-red-500' : ''}`}>{isMuted ? <MicOff size={16}/> : <Mic size={16}/>}</button>
-                      <button onClick={leaveVoiceChannel} className="p-1.5 rounded hover:bg-black/20"><PhoneOff size={16}/></button>
+                  <div className="flex gap-2">
+                      <button onClick={toggleMute} className={`p-1.5 rounded-full transition-colors ${isMuted ? 'bg-red-500 text-white' : 'hover:bg-white/10 text-gray-200'}`} title="Mute Mic">
+                          {isMuted ? <MicOff size={18}/> : <Mic size={18}/>}
+                      </button>
+                      <button onClick={toggleDeafen} className={`p-1.5 rounded-full transition-colors ${isDeafened ? 'bg-red-500 text-white' : 'hover:bg-white/10 text-gray-200'}`} title="Deafen (Mute Sound)">
+                          {isDeafened ? <HeadphonesOff size={18}/> : <Headphones size={18}/>}
+                      </button>
+                      <button onClick={leaveVoiceChannel} className="p-1.5 rounded-full hover:bg-white/10 text-gray-200" title="Disconnect">
+                          <PhoneOff size={18}/>
+                      </button>
                   </div>
               </div>
           )}
@@ -546,7 +542,7 @@ export default function EcoTalkApp() {
         <div className="flex-1 flex flex-col bg-[var(--bg-primary)] min-w-0 relative transition-colors">
           <div className="h-12 border-b border-[var(--border)] flex items-center justify-between px-4 shadow-sm"><div className="font-bold text-[var(--text-primary)] flex items-center">{activeServerId ? (<>{activeChannel?.type === 'voice' ? <Volume2 className="mr-2"/> : <Hash className="mr-2"/>} {activeChannel?.name}</>) : (<><div className="flex flex-col"><span>{activeDM?.username || 'Select Friend'}</span>{activeDM && (<span className={`text-[10px] font-normal ${activeFriendData?.status==='online'?'text-green-600':'text-gray-400'}`}>{activeFriendData?.status==='online'?'Online':`Last seen: ${formatLastSeen(activeFriendData?.lastSeen)}`}</span>)}</div></>)}</div><div className="flex items-center space-x-4">{activeServerId && <Users className={`cursor-pointer ${showMembersPanel ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'}`} onClick={()=>setShowMembersPanel(!showMembersPanel)}/>}</div></div>
           {activeChannel?.type === 'voice' ? (
-             <div className="flex-1 bg-gray-900 p-4 flex flex-col relative"><div className="flex-1 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 auto-rows-fr h-full overflow-y-auto"><UserMediaComponent stream={processedStream} isLocal={true} userId="me" username={currentUser?.username} userAvatar={currentUser?.avatar} isScreenShare={isScreenSharing} />{peers.map(p => (<GroupPeerWrapper key={p.peerID} peer={p.peer} peerID={p.peerID} outputDeviceId={selectedSpeakerId} allUsers={voiceStates[activeChannel.id] || []}/>))}</div><div className="h-20 flex justify-center items-center gap-4 mt-4 bg-black/40 rounded-2xl backdrop-blur-md border border-white/10 p-2 max-w-2xl mx-auto"><button onClick={toggleVideo} className={`p-3 rounded-full text-white transition-all hover:scale-105 ${isVideoOn ? 'bg-white text-black' : 'bg-gray-700 hover:bg-gray-600'}`} title="Toggle Camera">{isVideoOn ? <Video /> : <VideoOff />}</button><button onClick={toggleScreenShare} className={`p-3 rounded-full text-white transition-all hover:scale-105 ${isScreenSharing ? 'bg-green-500' : 'bg-gray-700 hover:bg-gray-600'}`} title="Share Screen">{isScreenSharing ? <Monitor /> : <MonitorOff />}</button><button onClick={toggleMute} className={`p-3 rounded-full text-white transition-all hover:scale-105 ${isMuted ? 'bg-red-500' : 'bg-gray-700 hover:bg-gray-600'}`} title="Toggle Microphone">{isMuted ? <MicOff/> : <Mic/>}</button><button onClick={leaveVoiceChannel} className="p-3 bg-red-600 rounded-full text-white hover:bg-red-700 hover:scale-105 transition-all" title="Disconnect"><PhoneOff/></button></div></div>
+             <div className="flex-1 bg-gray-900 p-4 flex flex-col relative"><div className="flex-1 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 auto-rows-fr h-full overflow-y-auto"><UserMediaComponent stream={isMuted ? null : processedStream} isLocal={true} userId="me" userAvatar={currentUser?.avatar} username={currentUser?.username} isScreenShare={isScreenSharing} />{peers.map(p => (<GroupPeerWrapper key={p.peerID} peer={p.peer} peerID={p.peerID} outputDeviceId={selectedSpeakerId} allUsers={voiceStates[activeChannel.id] || []} globalDeaf={isDeafened}/>))}</div><div className="h-20 flex justify-center items-center gap-4 mt-4 bg-black/40 rounded-2xl backdrop-blur-md border border-white/10 p-2 max-w-2xl mx-auto"><button onClick={toggleVideo} className={`p-3 rounded-full text-white transition-all hover:scale-105 ${isVideoOn ? 'bg-white text-black' : 'bg-gray-700 hover:bg-gray-600'}`} title="Toggle Camera">{isVideoOn ? <Video /> : <VideoOff />}</button><button onClick={toggleScreenShare} className={`p-3 rounded-full text-white transition-all hover:scale-105 ${isScreenSharing ? 'bg-green-500' : 'bg-gray-700 hover:bg-gray-600'}`} title="Share Screen">{isScreenSharing ? <Monitor /> : <MonitorOff />}</button><button onClick={toggleMute} className={`p-3 rounded-full text-white transition-all hover:scale-105 ${isMuted ? 'bg-red-500' : 'bg-gray-700 hover:bg-gray-600'}`} title="Toggle Microphone">{isMuted ? <MicOff/> : <Mic/>}</button><button onClick={leaveVoiceChannel} className="p-3 bg-red-600 rounded-full text-white hover:bg-red-700 hover:scale-105 transition-all" title="Disconnect"><PhoneOff/></button></div></div>
           ) : (
              <><div className="flex-1 overflow-y-auto p-4 space-y-4">
                 {messages.map((m,i) => { 
@@ -610,15 +606,7 @@ export default function EcoTalkApp() {
               <div className="mb-6"><h4 className="text-sm font-bold text-[var(--text-secondary)] mb-2 border-b border-[var(--border)] pb-1 flex items-center"><Palette size={14} className="mr-1"/> THEME</h4><div className="flex gap-2 mt-2"><button onClick={() => setTheme('minimal')} className={`flex-1 py-1 text-xs font-bold rounded border ${theme==='minimal'?'bg-gray-200 text-black border-black':'border-gray-300 text-gray-500'}`}>Minimal</button><button onClick={() => setTheme('neon')} className={`flex-1 py-1 text-xs font-bold rounded border ${theme==='neon'?'bg-slate-900 text-cyan-400 border-cyan-400':'border-gray-300 text-gray-500'}`}>Neon</button><button onClick={() => setTheme('vintage')} className={`flex-1 py-1 text-xs font-bold rounded border ${theme==='vintage'?'bg-amber-100 text-amber-900 border-amber-900':'border-gray-300 text-gray-500'}`}>Vintage</button></div></div>
               <div className="mb-6"><h4 className="text-sm font-bold text-[var(--text-secondary)] mb-2 border-b border-[var(--border)] pb-1">AUDIO SETTINGS</h4><label className="text-xs font-bold text-[var(--text-secondary)] block mb-1">MICROPHONE</label><select className="w-full p-2 border rounded mb-3 text-sm bg-[var(--bg-tertiary)]" value={selectedMicId} onChange={(e) => saveAudioSettings(e.target.value, selectedSpeakerId, enableNoiseSuppression, soundEnabled, voiceThreshold)}><option value="">Default</option>{audioInputs.map(d => <option key={d.deviceId} value={d.deviceId}>{d.label || `Microphone ${d.deviceId}`}</option>)}</select><label className="text-xs font-bold text-[var(--text-secondary)] block mb-1">SPEAKERS</label><select className="w-full p-2 border rounded text-sm bg-[var(--bg-tertiary)] mb-3" value={selectedSpeakerId} onChange={(e) => saveAudioSettings(selectedMicId, e.target.value, enableNoiseSuppression, soundEnabled, voiceThreshold)}><option value="">Default</option>{audioOutputs.map(d => <option key={d.deviceId} value={d.deviceId}>{d.label || `Speaker ${d.deviceId}`}</option>)}</select>
               <div className="flex items-center justify-between p-2 border rounded bg-[var(--bg-tertiary)] cursor-pointer mb-2" onClick={() => saveAudioSettings(selectedMicId, selectedSpeakerId, !enableNoiseSuppression, soundEnabled, voiceThreshold)}><div className="flex items-center text-sm font-bold">{enableNoiseSuppression && <Zap size={16} className="text-yellow-500 mr-2"/>}{!enableNoiseSuppression && <ZapOff size={16} className="text-gray-400 mr-2"/>} Noise Suppression (AI)</div><div className={`w-8 h-4 rounded-full relative transition-colors ${enableNoiseSuppression ? 'bg-green-500' : 'bg-gray-400'}`}><div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${enableNoiseSuppression ? 'left-4.5' : 'left-0.5'}`}></div></div></div>
-              
-              <div className="mb-2">
-                  <div className="flex justify-between items-center mb-1">
-                      <label className="text-xs font-bold text-[var(--text-secondary)] flex items-center"><Sliders size={12} className="mr-1"/> VOICE ACTIVATION LEVEL</label>
-                      <span className="text-xs font-mono">{voiceThreshold}%</span>
-                  </div>
-                  <input type="range" min="0" max="100" value={voiceThreshold} onChange={(e) => saveAudioSettings(selectedMicId, selectedSpeakerId, enableNoiseSuppression, soundEnabled, Number(e.target.value))} className="w-full h-2 bg-[var(--border)] rounded-lg appearance-none cursor-pointer"/>
-              </div>
-
+              <div className="mb-2"><div className="flex justify-between items-center mb-1"><label className="text-xs font-bold text-[var(--text-secondary)] flex items-center"><Sliders size={12} className="mr-1"/> VOICE ACTIVATION LEVEL</label><span className="text-xs font-mono">{voiceThreshold}%</span></div><input type="range" min="0" max="100" value={voiceThreshold} onChange={(e) => saveAudioSettings(selectedMicId, selectedSpeakerId, enableNoiseSuppression, soundEnabled, Number(e.target.value))} className="w-full h-2 bg-[var(--border)] rounded-lg appearance-none cursor-pointer"/></div>
               <div className="flex items-center justify-between p-2 border rounded bg-[var(--bg-tertiary)] cursor-pointer" onClick={() => saveAudioSettings(selectedMicId, selectedSpeakerId, enableNoiseSuppression, !soundEnabled, voiceThreshold)}><div className="flex items-center text-sm font-bold">{soundEnabled && <Volume2 size={16} className="text-blue-500 mr-2"/>}{!soundEnabled && <VolumeX size={16} className="text-gray-400 mr-2"/>} Sound Effects</div><div className={`w-8 h-4 rounded-full relative transition-colors ${soundEnabled ? 'bg-blue-500' : 'bg-gray-400'}`}><div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${soundEnabled ? 'left-4.5' : 'left-0.5'}`}></div></div></div>
               <div className="mt-4 border-t border-[var(--border)] pt-4"><h4 className="text-sm font-bold text-[var(--text-secondary)] mb-2 flex items-center"><Keyboard size={14} className="mr-1"/> HOTKEYS</h4><div className="flex items-center justify-between p-2 border rounded bg-[var(--bg-tertiary)]"><span className="text-sm font-bold">Toggle Mute</span><button onClick={() => setIsRecordingKey(true)} className={`px-3 py-1 rounded text-xs font-bold transition-all ${isRecordingKey ? 'bg-red-500 text-white animate-pulse' : (muteKey ? 'bg-blue-600 text-white' : 'bg-gray-400 text-white')}`}>{isRecordingKey ? "Press any key..." : (muteKey || "Click to Bind")}</button></div></div>
               <div className="mt-4 flex items-center gap-2"><button onClick={toggleMicTest} className={`flex-1 py-2 rounded text-sm font-bold transition-colors ${isTestingMic ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-gray-100 text-gray-900 hover:bg-gray-200'}`}>{isTestingMic ? "Stop Test" : "Check Microphone"}</button><audio ref={testAudioRef} hidden />{isTestingMic && <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse"></div>}</div></div>
