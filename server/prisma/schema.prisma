@@ -1,139 +1,255 @@
-// Это ваш файл схемы Prisma.
+ // Это ваш файл схемы Prisma.
+
 // Узнайте больше в документации: https://pris.ly/d/prisma-schema
 
+
+
 generator client {
-  provider = "prisma-client-js"
+
+provider = "prisma-client-js"
+
 }
+
+
 
 datasource db {
-  provider = "sqlite"
-  url      = "file:./dev.db"
+
+provider = "sqlite" // Используем SQLite для простоты (файл dev.db)
+
+url = "file:./dev.db"
+
 }
+
+
 
 // --- ПОЛЬЗОВАТЕЛЬ ---
+
 model User {
-  id          Int       @id @default(autoincrement())
-  username    String    @unique
-  password    String
-  avatar      String?   // Ссылка на аватарку
-  status      String    @default("offline") // online, offline
+
+id Int @id @default(autoincrement())
+
+username String @unique
+
+password String
+
+avatar String? // Ссылка на аватарку
+
+  status      String   @default("offline") // online, offline
+
   lastSeen    DateTime?
-  
-  // Список друзей хранится как JSON массив ID "[1, 2, 5]"
-  friendsData String?   
 
-  // === НОВЫЕ ПОЛЯ ДЛЯ МАГАЗИНА ===
-  coins             Int       @default(0) // 💰 Баланс EcoCoin
-  inventoryData     String?   // 🎒 Список купленных ID предметов (JSON String)
-  customizationData String?   // 🎨 Текущие надетые предметы (JSON String: {frame, color})
-  lastDailyBonus    DateTime? // 🎁 Дата последнего получения бонуса
-  // ===============================
-
-  // Связи
-  servers      Member[]       // В каких серверах состоит
-  owned        Server[]       // Какие сервера создал
-  messages     Message[]      // Отправленные сообщения
-  reactions    Reaction[]     // Поставленные реакции
   
-  // Уведомления
-  sentNotif    Notification[] @relation("Sender")
-  recvNotif    Notification[] @relation("Receiver")
+
+// Список друзей хранится как JSON массив ID "[1, 2, 5]"
+
+// (простой способ, чтобы не делать сложную many-to-many связь сейчас)
+
+friendsData String?
+
+
+
+// Связи
+
+servers Member[] // В каких серверах состоит
+
+owned Server[] // Какие сервера создал
+
+messages Message[] // Отправленные сообщения
+
+reactions Reaction[] // Поставленные реакции
+
+  
+
+// Уведомления
+
+sentNotif Notification[] @relation("Sender")
+
+recvNotif Notification[] @relation("Receiver")
+
 }
+
+
 
 // --- СЕРВЕР ---
-model Server {
-  id          Int       @id @default(autoincrement())
-  name        String
-  icon        String?
-  description String?
-  
-  ownerId     Int
-  owner       User      @relation(fields: [ownerId], references: [id])
 
-  channels    Channel[]
-  members     Member[]
-  invites     Notification[] // Приглашения на этот сервер
+model Server {
+
+id Int @id @default(autoincrement())
+
+name String
+
+icon String?
+
+description String?
+
+  
+
+ownerId Int
+
+owner User @relation(fields: [ownerId], references: [id])
+
+
+
+channels Channel[]
+
+members Member[]
+
+invites Notification[] // Приглашения на этот сервер
+
 }
+
+
 
 // --- УЧАСТНИК СЕРВЕРА ---
+
 model Member {
-  id       Int    @id @default(autoincrement())
-  userId   Int
-  serverId Int
+
+идентификатор Int @id @default(автоинкремент())
+
+Идентификатор пользователя Int
+
+Идентификатор сервера Int
+
   
-  user     User   @relation(fields: [userId], references: [id])
-  server   Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+пользователь Пользователь @relation(поля: [userId], ссылки: [id])
+
+сервер Сервер @relation(поля: [serverId], ссылки: [id], при удалении: каскадное удаление)
+
 }
+
+
 
 // --- КАНАЛ ---
-model Channel {
-  id       Int       @id @default(autoincrement())
-  name     String
-  type     String    @default("text") // "text" или "voice"
+
+модельный канал {
+
+идентификатор Int @id @default(автоинкремент())
+
+строка имени
+
+type String @default("text") // "text" или "voice"
+
   
-  serverId Int
-  server   Server    @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+serverId Int
+
+server Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
   
-  messages Message[] // Сообщения в этом канале
+
+messages Message[] // Сообщения в этом канале
+
 }
+
+
 
 // --- СООБЩЕНИЕ ---
+
 model Message {
-  id        Int      @id @default(autoincrement())
-  content   String?  // Текст сообщения
-  imageUrl  String?  // Ссылка на картинку
-  type      String   @default("text") 
-  
-  isEdited  Boolean  @default(false)
-  
-  author    String   // Имя автора
-  userId    Int
-  user      User     @relation(fields: [userId], references: [id])
 
-  // === НОВОЕ ПОЛЕ ===
-  // Храним стиль автора в момент отправки (JSON), чтобы в истории чата 
-  // сообщение оставалось цветным, даже если юзер потом поменяет цвет.
-  userCustomData String? 
-  // ==================
+id Int @id @default(autoincrement())
 
-  // Если сообщение в канале сервера
-  channelId Int?
-  channel   Channel? @relation(fields: [channelId], references: [id], onDelete: Cascade)
-  
-  // Если сообщение в ЛС
-  dmRoom    String?  
+content String? // Текст сообщения (может быть пустым, если это картинка)
 
-  createdAt DateTime   @default(now())
+imageUrl String? // Ссылка на картинку (base64)
+
+type String @default("text") // "text", "image", "call"
+
   
-  reactions Reaction[] 
+
+isEdited Boolean @default(false) // Флаг: было ли сообщение изменено
+
+  
+
+author String // Имя автора (для удобства)
+
+userId Int
+
+user User @relation(fields: [userId], references: [id])
+
+
+
+// Если сообщение в канале сервера
+
+channelId Int?
+
+channel Channel? @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  
+
+// Если сообщение в ЛС (название комнаты, например "dm_1_2")
+
+dmRoom String?
+
+
+
+createdAt DateTime @default(now())
+
+  
+
+reactions Reaction[] // Реакции на это сообщение
+
 }
 
-// --- РЕАКЦИЯ ---
-model Reaction {
-  id        Int     @id @default(autoincrement())
-  emoji     String  
+
+
+// --- РЕАКЦИЯ (НОВАЯ) ---
+
+модельная реакция {
+
+идентификатор Int @id @default(автоинкремент())
+
+Строка с эмодзи // Сам смайлик (например, «👍»)
+
   
-  userId    Int
-  user      User    @relation(fields: [userId], references: [id])
+
+Идентификатор пользователя Int
+
+пользователь Пользователь @relation(поля: [userId], ссылки: [id])
+
   
-  messageId Int
-  message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+MessageId Int
+
+сообщение Сообщение @relation(поля: [messageId], ссылки: [id], при удалении: каскадное удаление)
+
 }
+
+
 
 // --- УВЕДОМЛЕНИЕ ---
-model Notification {
-  id          Int      @id @default(autoincrement())
-  type        String   // "FRIEND_REQUEST", "SERVER_INVITE"
-  status      String   @default("PENDING") 
+
+уведомление о модели {
+
+идентификатор Int @id @default(автоинкремент())
+
+тип данных: строка // «FRIEND_REQUEST», «SERVER_INVITE»
+
+статус Строка @default("В ОЖИДАНИИ") // "ПРИНЯТО", "ОТКЛОНЕНО"
+
   
-  senderId    Int
-  sender      User     @relation("Sender", fields: [senderId], references: [id])
+
+Отправительid Int
+
+отправитель Пользователь @relation("Отправитель", поля: [senderId], ссылки: [id])
+
   
-  receiverId  Int
-  receiver    User     @relation("Receiver", fields: [receiverId], references: [id])
+
+Идентификатор получателя Int
+
+получатель Пользователь @relation("Получатель", поля: [получательId], ссылки: [id])
+
   
-  serverId    Int?
-  server      Server?  @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+// Опционально: ссылка на сервер (для приглашений)
+
+serverId Int?
+
+server Server? @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
   
-  createdAt   DateTime @default(now())
+
+createdAt DateTime @default(now())
+
 }
