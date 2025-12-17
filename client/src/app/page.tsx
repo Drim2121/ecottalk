@@ -72,25 +72,17 @@ const playSoundEffect = (type: 'msg' | 'join' | 'leave' | 'click') => {
   }
 };
 
-// === FIXED VOICE ENGINE ===
-// This handles Mute state AND Volume Detection separately to avoid the "Deadlock" bug
-const useAudioController = (stream: MediaStream | null, threshold: number, isGlobalMute: boolean) => {
+// === UNIVERSAL AUDIO ANALYZER (For Green Borders) ===
+// Works for both Local and Remote streams
+const useStreamAnalyzer = (stream: MediaStream | null) => {
   const [isTalking, setIsTalking] = useState(false);
 
   useEffect(() => {
-    if (!stream || stream.getAudioTracks().length === 0) return;
-    
-    // 1. HARDWARE MUTE LOGIC (Priority 1)
-    const track = stream.getAudioTracks()[0];
-    if (isGlobalMute) {
-        track.enabled = false;
+    if (!stream || stream.getAudioTracks().length === 0) {
         setIsTalking(false);
-        return; // Stop processing if manually muted
-    } else {
-        track.enabled = true; // Always enable if not manually muted
+        return;
     }
 
-    // 2. ANALYZER LOGIC (Visuals & Threshold)
     const ctx = getAudioContext();
     if (!ctx) return;
 
@@ -106,7 +98,7 @@ const useAudioController = (stream: MediaStream | null, threshold: number, isGlo
       source.connect(analyser);
 
       const checkVolume = () => {
-        if (!analyser || isGlobalMute) return;
+        if (!analyser) return;
         const data = new Uint8Array(analyser.frequencyBinCount);
         analyser.getByteFrequencyData(data);
         
@@ -114,19 +106,22 @@ const useAudioController = (stream: MediaStream | null, threshold: number, isGlo
         for (let i = 0; i < data.length; i++) sum += data[i];
         const average = sum / data.length;
 
-        // Visual Threshold logic
-        setIsTalking(average > threshold);
+        // Threshold 5 seems good for general speaking
+        setIsTalking(average > 5);
       };
 
       interval = setInterval(checkVolume, 100);
 
-    } catch (e) { console.error(e); }
+    } catch (e) { 
+        // Ignore CORS errors for remote streams if audio context is strict
+        // But usually works for visualizing volume
+    }
 
     return () => {
       if (interval) clearInterval(interval);
       try { source?.disconnect(); analyser?.disconnect(); } catch {}
     };
-  }, [stream, threshold, isGlobalMute]);
+  }, [stream]);
 
   return isTalking;
 };
@@ -136,15 +131,13 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   
-  // UI States
+  // 1. Analyze Audio Activity (Green Border)
+  const isSpeaking = useStreamAnalyzer(stream);
+  
+  // 2. Track Video/Audio State
   const [hasVideo, setHasVideo] = useState(false);
   const [isAudioEnabled, setIsAudioEnabled] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  
-  // Use hook purely for speaking detection visualization
-  // NOTE: For local user, we pass actual threshold in main app. 
-  // For remote users, we just visualize based on if audio is flowing (simplified).
-  const isSpeaking = useAudioController(isLocal ? stream : null, 10, !isAudioEnabled); 
 
   useEffect(() => {
     if(!stream) { setHasVideo(false); setIsAudioEnabled(false); return; }
@@ -152,11 +145,12 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
     const checkStatus = () => {
         setHasVideo(stream.getVideoTracks().length > 0 && stream.getVideoTracks()[0].enabled);
         const audioTrack = stream.getAudioTracks()[0];
+        // If track exists and is enabled, show no mute icon
         setIsAudioEnabled(audioTrack ? audioTrack.enabled : false);
     };
     
-    checkStatus(); // Initial check
-    const interval = setInterval(checkStatus, 500); // Polling for robust updates
+    checkStatus();
+    const interval = setInterval(checkStatus, 500); 
     return () => clearInterval(interval);
   }, [stream]);
 
@@ -174,12 +168,16 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
       if (!document.fullscreenElement) { containerRef.current.requestFullscreen().catch(err => console.log(err)); } else { document.exitFullscreen(); }
   };
 
-  const objectFitClass = (isScreenShare || isFullscreen) ? 'object-contain' : 'object-cover';
-  const containerClass = isFullscreen ? 'fixed inset-0 z-50 bg-black rounded-none flex flex-col items-center justify-center' : 'flex flex-col items-center justify-center p-2 h-full w-full relative bg-black/20 rounded-xl overflow-hidden border border-white/10 group transition-all';
+  // FIX: Always use object-contain to prevent cropping screenshares
+  const objectFitClass = 'object-contain'; 
+  const containerClass = isFullscreen 
+    ? 'fixed inset-0 z-50 bg-black rounded-none flex flex-col items-center justify-center' 
+    : 'flex flex-col items-center justify-center p-2 h-full w-full relative bg-black/40 rounded-xl overflow-hidden border border-white/10 group transition-all';
 
   return (
     <div ref={containerRef} className={containerClass}>
       <video ref={videoRef} autoPlay playsInline muted={isLocal} className={`absolute inset-0 w-full h-full ${objectFitClass} transition-all duration-300 ${hasVideo ? 'opacity-100' : 'opacity-0'} ${isLocal && !isScreenShare ? 'scale-x-[-1]' : ''}`} />
+      
       {!hasVideo && (
         <div className="z-10 flex flex-col items-center">
             <div className={`relative w-24 h-24 rounded-full p-1 transition-all duration-150 ${isSpeaking ? "bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.6)] scale-105" : "bg-gray-700"}`}>
@@ -187,7 +185,14 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
             </div>
         </div>
       )}
+
+      {/* Audio Visualizer Ring for Video too */}
+      {hasVideo && isSpeaking && (
+          <div className="absolute inset-0 border-4 border-green-500 rounded-xl z-20 pointer-events-none opacity-50"></div>
+      )}
+
       {!isAudioEnabled && (<div className="absolute top-4 right-4 bg-red-600 p-2 rounded-full shadow-lg z-20 animate-in fade-in zoom-in duration-200"><MicOff size={16} className="text-white" /></div>)}
+      
       <button onClick={toggleFullscreen} className="absolute bottom-10 right-4 p-2 bg-black/50 hover:bg-black/80 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity z-20">{isFullscreen ? <Minimize size={20}/> : <Maximize size={20}/>}</button>
       <div className={`absolute bottom-4 left-4 z-20 text-white font-bold text-sm bg-black/60 px-3 py-1 rounded backdrop-blur-sm flex items-center gap-1 ${isFullscreen ? 'scale-125 origin-bottom-left' : ''}`}>{username || "User"} {isLocal && "(You)"}</div>
     </div>
@@ -272,9 +277,6 @@ export default function EcoTalkApp() {
   const [isVideoOn, setIsVideoOn] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   
-  // USE AUDIO CONTROLLER (Fixes the Mute Bug)
-  const isLocalSpeaking = useAudioController(myStream, voiceThreshold, isMuted);
-
   // KEYBINDS
   const [muteKey, setMuteKey] = useState<string | null>(null);
   const [isRecordingKey, setIsRecordingKey] = useState(false);
@@ -469,7 +471,19 @@ export default function EcoTalkApp() {
           if (firstText) selectChannel(firstText);
       }
   };
-  const toggleMute = () => { if (!myStream) return; playSound("click"); const track = myStream.getAudioTracks()[0]; if (!track) return; setIsMuted(!isMuted); };
+  
+  // === MUTING (State Only) ===
+  const toggleMute = () => { 
+      if (!myStream) return; 
+      playSound("click"); 
+      const newMuteState = !isMuted;
+      setIsMuted(newMuteState);
+      
+      // Hardware mute is handled by the useEffect above, but we also do it here for instant feedback
+      const track = myStream.getAudioTracks()[0];
+      if (track) track.enabled = !newMuteState; 
+  };
+
   const selectDM = (friend: any) => { if (friend.id === currentUser?.id) return; setActiveServerId(null); if (activeVoiceChannel) leaveVoiceChannel(); setActiveDM(friend); setActiveChannel(null); setMessages([]); const me = currentUser; if (!me) return; const ids = [me.id, friend.id].sort(); socket.emit("join_dm", { roomName: `dm_${ids[0]}_${ids[1]}` }); playSound("click"); };
   const sendMessage = () => { const me = currentUser; if (!me || !inputText) return; socket.emit("send_message", { content: inputText, author: me.username, userId: me.id, channelId: activeServerId ? activeChannel?.id : null, dmRoom: activeDM ? `dm_${[me.id, activeDM.id].sort().join("_")}` : null, }); setInputText(""); const room = activeServerId ? `channel_${activeChannel?.id}` : activeDM ? `dm_${[me.id, activeDM.id].sort().join("_")}` : null; if (room) socket.emit("stop_typing", { room }); };
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onloadend = () => socket.emit("send_message", { content: null, imageUrl: reader.result, type: "image", author: currentUser.username, userId: currentUser.id, channelId: activeServerId ? activeChannel?.id : null, dmRoom: activeDM ? `dm_${[currentUser.id, activeDM.id].sort().join("_")}` : null, }); reader.readAsDataURL(file); };
