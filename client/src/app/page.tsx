@@ -206,13 +206,16 @@ export default function EcoTalkApp() {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [isTestingMic, setIsTestingMic] = useState(false);
   const testAudioRef = useRef<HTMLAudioElement>(null);
-  const [activeVoiceChannel, setActiveVoiceChannel] = useState<number | null>(null);
+  
+  // VOICE STATE
+  const [activeVoiceChannel, setActiveVoiceChannel] = useState<number | null>(null); // VOICE CONNECTION
   const [myStream, setMyStream] = useState<MediaStream | null>(null);
   const [peers, setPeers] = useState<{ peerID: string; peer: Peer.Instance }[]>([]);
   const peersRef = useRef<{ peerID: string; peer: Peer.Instance }[]>([]);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOn, setIsVideoOn] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
+  
   const lastTypingTime = useRef<number>(0);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -298,7 +301,13 @@ export default function EcoTalkApp() {
   const updateChannel = async () => { if (!editingChannel) return; const res = await fetch(`${SOCKET_URL}/api/channels/${editingChannel.id}`, { method: "PUT", headers: { "Content-Type": "application/json", Authorization: token! }, body: JSON.stringify({ name: newChannelName }), }); if (res.ok) { setEditingChannel(null); selectServer(activeServerId!); } };
   const deleteChannel = async () => { if (!editingChannel || !confirm("Delete channel?")) return; const res = await fetch(`${SOCKET_URL}/api/channels/${editingChannel.id}`, { method: "DELETE", headers: { Authorization: token! }, }); if (res.ok) { if (activeChannel?.id === editingChannel.id) setActiveChannel(null); setEditingChannel(null); selectServer(activeServerId!); } };
   const openUserProfile = () => { if (!currentUser) return; setEditUserName(currentUser.username); setEditUserAvatar(currentUser.avatar); navigator.mediaDevices.getUserMedia({ audio: true }).then(() => { navigator.mediaDevices.enumerateDevices().then((d) => { setAudioInputs(d.filter((x) => x.kind === "audioinput")); setAudioOutputs(d.filter((x) => x.kind === "audiooutput")); }); }).catch((e) => console.log("Perms denied")); setShowUserSettings(true); playSound("click"); };
-  const saveAudioSettings = (mic: string, spk: string, nc: boolean, sound: boolean) => { setSelectedMicId(mic); setSelectedSpeakerId(spk); setEnableNoiseSuppression(nc); setSoundEnabled(sound); localStorage.setItem("eco_mic_id", mic); localStorage.setItem("eco_speaker_id", spk); localStorage.setItem("eco_nc", String(nc)); localStorage.setItem("eco_sound", String(sound)); if(sound) playSoundEffect("click"); };
+  
+  const saveAudioSettings = (mic: string, spk: string, nc: boolean, sound: boolean) => { 
+      setSelectedMicId(mic); setSelectedSpeakerId(spk); setEnableNoiseSuppression(nc); setSoundEnabled(sound);
+      localStorage.setItem("eco_mic_id", mic); localStorage.setItem("eco_speaker_id", spk); localStorage.setItem("eco_nc", String(nc)); localStorage.setItem("eco_sound", String(sound));
+      if(sound) playSoundEffect("click"); 
+  };
+
   const toggleMicTest = async () => { if (isTestingMic) { if (testAudioRef.current?.srcObject) { (testAudioRef.current.srcObject as MediaStream).getTracks().forEach((t) => t.stop()); testAudioRef.current.srcObject = null; } setIsTestingMic(false); return; } try { const constraints = { audio: { deviceId: selectedMicId ? { exact: selectedMicId } : undefined, echoCancellation: true, noiseSuppression: enableNoiseSuppression, autoGainControl: true } }; const stream = await navigator.mediaDevices.getUserMedia(constraints); if (testAudioRef.current) { testAudioRef.current.srcObject = stream; const anyAudio = testAudioRef.current as any; if (selectedSpeakerId && typeof anyAudio.setSinkId === "function") { await anyAudio.setSinkId(selectedSpeakerId); } await testAudioRef.current.play().catch(() => {}); } setIsTestingMic(true); } catch (e) { console.error(e); alert("Mic error"); } };
   const closeSettings = () => { if (isTestingMic) toggleMicTest(); setShowUserSettings(false); playSound("click"); };
   const updateUserProfile = async () => { const res = await fetch(`${SOCKET_URL}/api/me`, { method: "PUT", headers: { "Content-Type": "application/json", Authorization: token! }, body: JSON.stringify({ username: editUserName, avatar: editUserAvatar }), }); if (res.ok) { const updated = await res.json(); setCurrentUser((prev: any) => ({ ...prev, ...updated })); setShowUserSettings(false); alert("Updated!"); } };
@@ -310,13 +319,51 @@ export default function EcoTalkApp() {
   const handleNotification = async (id: number, action: "ACCEPT" | "DECLINE") => { if (!token) return; if (action === "ACCEPT") { const notif = notifications.find((n) => n.id === id); if (notif?.type === "FRIEND_REQUEST" && notif.sender) { setMyFriends((prev) => (prev.find((x) => x.id === notif.sender.id) ? prev : [...prev, notif.sender])); } } setNotifications((prev) => prev.filter((n) => n.id !== id)); await fetch(`${SOCKET_URL}/api/notifications/respond`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: token }, body: JSON.stringify({ notificationId: id, action }), }); if (action === "ACCEPT") fetchUserData(token); playSound("click"); };
   const addFriend = async () => { if (!token) return; const res = await fetch(`${SOCKET_URL}/api/friends/invite`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: token }, body: JSON.stringify({ username: friendName }), }); if (res.ok) { setFriendName(""); setShowAddFriend(false); alert("Sent!"); } else alert("Error"); };
   const inviteUser = async () => { if (!token || !activeServerId) return; const res = await fetch(`${SOCKET_URL}/api/servers/invite`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: token }, body: JSON.stringify({ serverId: activeServerId, username: inviteUserName }), }); if (res.ok) { alert("Sent!"); setInviteUserName(""); setShowInvite(false); } else { const data = await res.json(); alert(data.error); } };
-  const selectServer = async (serverId: number) => { if (!token) return; setActiveServerId(serverId); setActiveDM(null); if (activeVoiceChannel) leaveVoiceChannel(); const res = await fetch(`${SOCKET_URL}/api/server/${serverId}`, { headers: { Authorization: token } }); const data = await res.json(); setActiveServerData(data); setCurrentServerMembers(data.members.map((m: any) => m.user)); setMyServers((p) => p.map((s) => (s.id === serverId ? data : s))); if (data.channels.length > 0) selectChannel(data.channels[0]); playSound("click"); };
+  
+  // === SELECT SERVER (AUTO-TEXT) ===
+  const selectServer = async (serverId: number) => { 
+      if (!token) return; 
+      setActiveServerId(serverId); setActiveDM(null); 
+      if (activeVoiceChannel) leaveVoiceChannel(); 
+      const res = await fetch(`${SOCKET_URL}/api/server/${serverId}`, { headers: { Authorization: token } }); 
+      const data = await res.json(); 
+      setActiveServerData(data); 
+      setCurrentServerMembers(data.members.map((m: any) => m.user)); 
+      setMyServers((p) => p.map((s) => (s.id === serverId ? data : s))); 
+      
+      const firstText = data.channels.find((c: any) => c.type === 'text');
+      if (firstText) selectChannel(firstText);
+      else if (data.channels.length > 0) selectChannel(data.channels[0]);
+      
+      playSound("click"); 
+  };
 
   const getMediaConstraints = (video: boolean) => ({ video: video ? { width: 640, height: 480, facingMode: "user" } : false, audio: { deviceId: selectedMicId ? { exact: selectedMicId } : undefined, echoCancellation: true, noiseSuppression: enableNoiseSuppression, autoGainControl: true } });
-  const selectChannel = (c: any) => { if (activeVoiceChannel === c.id) { setActiveChannel(c); return; } if (c.type === 'voice') { if (activeVoiceChannel && activeVoiceChannel !== c.id) leaveVoiceChannel(); setActiveChannel(c); setActiveVoiceChannel(c.id); playSound("join"); navigator.mediaDevices.getUserMedia(getMediaConstraints(false)).then((s) => { setMyStream(s); setIsMuted(false); setIsVideoOn(false); setIsScreenSharing(false); }).catch((e) => { console.error(e); alert("Mic Error"); setActiveVoiceChannel(null); }); } else { setActiveChannel(c); setMessages([]); socket.emit("join_channel", { channelId: c.id }); playSound("click"); } };
+  
+  // === SELECT CHANNEL (PERSISTENT VOICE) ===
+  const selectChannel = (c: any) => {
+    if (activeVoiceChannel === c.id) { setActiveChannel(c); return; }
+    if (c.type === 'voice') {
+        if (activeVoiceChannel && activeVoiceChannel !== c.id) leaveVoiceChannel();
+        setActiveChannel(c); setActiveVoiceChannel(c.id); playSound("join");
+        navigator.mediaDevices.getUserMedia(getMediaConstraints(false)).then((s) => { setMyStream(s); setIsMuted(false); setIsVideoOn(false); setIsScreenSharing(false); }).catch((e) => { console.error(e); alert("Mic Error"); setActiveVoiceChannel(null); });
+    } else {
+        setActiveChannel(c); setMessages([]); socket.emit("join_channel", { channelId: c.id }); playSound("click"); 
+    }
+  };
+
   const toggleVideo = async () => { if (!activeVoiceChannel) return; playSound("click"); if (isVideoOn || isScreenSharing) { const stream = await navigator.mediaDevices.getUserMedia(getMediaConstraints(false)); if (myStream) myStream.getTracks().forEach(t => t.stop()); setMyStream(stream); setIsVideoOn(false); setIsScreenSharing(false); } else { try { const stream = await navigator.mediaDevices.getUserMedia(getMediaConstraints(true)); if (myStream) myStream.getTracks().forEach(t => t.stop()); setMyStream(stream); setIsVideoOn(true); setIsScreenSharing(false); } catch (e) { console.error(e); alert("Could not start video"); } } };
   const toggleScreenShare = async () => { if (!activeVoiceChannel) return; playSound("click"); if (isScreenSharing) { const stream = await navigator.mediaDevices.getUserMedia(getMediaConstraints(false)); if (myStream) myStream.getTracks().forEach(t => t.stop()); setMyStream(stream); setIsScreenSharing(false); setIsVideoOn(false); } else { try { const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }); const micStream = await navigator.mediaDevices.getUserMedia({ audio: getMediaConstraints(false).audio }); const tracks = [ ...screenStream.getVideoTracks(), ...micStream.getAudioTracks() ]; const combinedStream = new MediaStream(tracks); screenStream.getVideoTracks()[0].onended = () => { toggleScreenShare(); }; if (myStream) myStream.getTracks().forEach(t => t.stop()); setMyStream(combinedStream); setIsScreenSharing(true); setIsVideoOn(false); } catch(e) { console.log("Screen share cancelled"); } } };
-  const leaveVoiceChannel = () => { if (myStream) myStream.getTracks().forEach((track) => track.stop()); setMyStream(null); setActiveVoiceChannel(null); setIsVideoOn(false); setIsScreenSharing(false); playSound("leave"); if (activeChannel?.id === activeVoiceChannel) { const server = myServers.find((s) => s.id === activeServerId); const firstText = server?.channels?.find((c: any) => c.type === "text"); if (firstText) selectChannel(firstText); } };
+  const leaveVoiceChannel = () => { 
+      if (myStream) myStream.getTracks().forEach((track) => track.stop()); 
+      setMyStream(null); setActiveVoiceChannel(null); setIsVideoOn(false); setIsScreenSharing(false); 
+      playSound("leave"); 
+      if (activeChannel?.id === activeVoiceChannel) {
+          const server = myServers.find((s) => s.id === activeServerId); 
+          const firstText = server?.channels?.find((c: any) => c.type === "text"); 
+          if (firstText) selectChannel(firstText);
+      }
+  };
   const toggleMute = () => { if (!myStream) return; playSound("click"); const track = myStream.getAudioTracks()[0]; if (!track) return; track.enabled = !track.enabled; setIsMuted(!track.enabled); };
   const selectDM = (friend: any) => { if (friend.id === currentUser?.id) return; setActiveServerId(null); if (activeVoiceChannel) leaveVoiceChannel(); setActiveDM(friend); setActiveChannel(null); setMessages([]); const me = currentUser; if (!me) return; const ids = [me.id, friend.id].sort(); socket.emit("join_dm", { roomName: `dm_${ids[0]}_${ids[1]}` }); playSound("click"); };
   const sendMessage = () => { const me = currentUser; if (!me || !inputText) return; socket.emit("send_message", { content: inputText, author: me.username, userId: me.id, channelId: activeServerId ? activeChannel?.id : null, dmRoom: activeDM ? `dm_${[me.id, activeDM.id].sort().join("_")}` : null, }); setInputText(""); const room = activeServerId ? `channel_${activeChannel?.id}` : activeDM ? `dm_${[me.id, activeDM.id].sort().join("_")}` : null; if (room) socket.emit("stop_typing", { room }); };
