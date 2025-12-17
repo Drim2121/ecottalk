@@ -1,16 +1,12 @@
 {
   "name": "server",
   "version": "1.0.0",
-  "description": "",
   "main": "index.ts",
   "scripts": {
     "dev": "ts-node index.ts",
     "start": "ts-node index.ts",
     "build": "tsc"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
     "@prisma/client": "^5.10.2",
     "bcryptjs": "^2.4.3",
