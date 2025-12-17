@@ -93,7 +93,7 @@ const useStreamAnalyzer = (stream: MediaStream | null) => {
                 const data = new Uint8Array(analyser.frequencyBinCount);
                 analyser.getByteFrequencyData(data);
                 let sum = 0; for (let i = 0; i < data.length; i++) sum += data[i];
-                setIsTalking((sum / data.length) > 10); // Threshold 10
+                setIsTalking((sum / data.length) > 10); 
             };
             interval = setInterval(checkVolume, 100);
         } catch (e) {}
@@ -107,12 +107,9 @@ const useProcessedStream = (rawStream: MediaStream | null, threshold: number, is
     const [processedStream, setProcessedStream] = useState<MediaStream | null>(null);
     useEffect(() => {
         if (!rawStream) return;
-        // If screen sharing (video present), we assume mixing happened or will happen, 
-        // we just pass it through but respect mute if needed for mic part (complex, so we simplify: pass through)
-        if (rawStream.getVideoTracks().length > 0 && rawStream.getAudioTracks().length > 0) {
-             setProcessedStream(rawStream);
-             return;
-        }
+        
+        // If screen sharing (video present), bypass gate
+        if (rawStream.getVideoTracks().length > 0) { setProcessedStream(rawStream); return; }
         if (rawStream.getAudioTracks().length === 0) { setProcessedStream(rawStream); return; }
 
         const ctx = getAudioContext();
@@ -134,12 +131,11 @@ const useProcessedStream = (rawStream: MediaStream | null, threshold: number, is
             const data = new Uint8Array(analyser.frequencyBinCount);
             analyser.getByteFrequencyData(data);
             let sum = 0; for (let i = 0; i < data.length; i++) sum += data[i];
+            // Threshold Logic
             if ((sum / data.length) > threshold) { gainNode.gain.setTargetAtTime(1, ctx.currentTime, 0.05); } 
             else { gainNode.gain.setTargetAtTime(0, ctx.currentTime, 0.2); }
         };
         interval = setInterval(processAudio, 50);
-        
-        // Use the processed audio track
         const newTracks = [...destination.stream.getAudioTracks(), ...rawStream.getVideoTracks()];
         setProcessedStream(new MediaStream(newTracks));
 
@@ -152,7 +148,7 @@ const useProcessedStream = (rawStream: MediaStream | null, threshold: number, is
 const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, username, outputDeviceId, isScreenShare }: { stream: MediaStream | null; isLocal: boolean; userId: string; userAvatar?: string; username?: string; outputDeviceId?: string; isScreenShare?: boolean; }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const isSpeaking = useStreamAnalyzer(stream); // Analyzer handles green border for everyone
+  const isSpeaking = useStreamAnalyzer(stream); 
   const [hasVideo, setHasVideo] = useState(false);
   const [isAudioEnabled, setIsAudioEnabled] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -205,11 +201,15 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
 });
 UserMediaComponent.displayName = "UserMediaComponent";
 
-const GroupPeerWrapper = React.memo(({ peer, peerID, outputDeviceId, allUsers }: { peer: Peer.Instance; peerID: string; outputDeviceId?: string; allUsers: any[]; }) => {
+// === CORRECTED PEER WRAPPER ===
+const GroupPeerWrapper = React.memo(({ peer, peerID, outputDeviceId, allUsers, fallbackName }: { peer: Peer.Instance; peerID: string; outputDeviceId?: string; allUsers: any[]; fallbackName?: string }) => {
   const [stream, setStream] = useState<MediaStream | null>(null);
   useEffect(() => { const onStream = (s: MediaStream) => setStream(s); peer.on("stream", onStream); if ((peer as any)._remoteStreams?.length) setStream((peer as any)._remoteStreams[0]); return () => { peer.off("stream", onStream); }; }, [peer]);
+  
+  // LOOKUP: Try to find user in voice list, if not, use fallback (friend list/member list)
   const u = allUsers.find((x: any) => x.socketId === peerID);
-  return <UserMediaComponent stream={stream} isLocal={false} userId={peerID} userAvatar={u?.avatar} username={u?.username} outputDeviceId={outputDeviceId} isScreenShare={false}/>;
+  
+  return <UserMediaComponent stream={stream} isLocal={false} userId={peerID} userAvatar={u?.avatar} username={u?.username || fallbackName || "Connecting..."} outputDeviceId={outputDeviceId} isScreenShare={false}/>;
 });
 GroupPeerWrapper.displayName = "GroupPeerWrapper";
 
@@ -265,11 +265,15 @@ export default function EcoTalkApp() {
   const [audioOutputs, setAudioOutputs] = useState<MediaDeviceInfo[]>([]);
   const [selectedMicId, setSelectedMicId] = useState<string>("");
   const [selectedSpeakerId, setSelectedSpeakerId] = useState<string>("");
+  
+  // === ADVANCED AUDIO SETTINGS ===
   const [enableNoiseSuppression, setEnableNoiseSuppression] = useState(true);
   const [voiceThreshold, setVoiceThreshold] = useState(10); 
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [isTestingMic, setIsTestingMic] = useState(false);
   const testAudioRef = useRef<HTMLAudioElement>(null);
+  
+  // VOICE STATE
   const [activeVoiceChannel, setActiveVoiceChannel] = useState<number | null>(null); 
   const [myStream, setMyStream] = useState<MediaStream | null>(null);
   const [peers, setPeers] = useState<{ peerID: string; peer: Peer.Instance }[]>([]);
@@ -277,6 +281,7 @@ export default function EcoTalkApp() {
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOn, setIsVideoOn] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
+  
   const processedStream = useProcessedStream(myStream, voiceThreshold, isMuted);
   const [muteKey, setMuteKey] = useState<string | null>(null);
   const [isRecordingKey, setIsRecordingKey] = useState(false);
@@ -322,6 +327,7 @@ export default function EcoTalkApp() {
     const onFriendAdded = (f: any) => { setMyFriends((p) => (p.find((x) => x.id === f.id) ? p : [...p, f])); if (tokenRef.current) fetchUserData(tokenRef.current); };
     const onFriendRemoved = (id: number) => { setMyFriends((p) => p.filter((f) => f.id !== id)); setActiveDM((prev: any) => (prev?.id === id ? null : prev)); };
     const onUserStatus = ({ userId, status, lastSeen }: any) => { setMyFriends((p) => p.map((f) => (f.id === userId ? { ...f, status, lastSeen } : f))); setCurrentServerMembers((p) => p.map((m) => (m.id === userId ? { ...m, status, lastSeen } : m))); };
+    // FIX: Ensure key is number for channel ID lookup
     const onVoiceUpdate = ({ roomId, users }: any) => { setVoiceStates((prev) => { const key = Number(roomId); if (JSON.stringify(prev[key]) === JSON.stringify(users)) return prev; return { ...prev, [key]: users }; }); };
     const onMsgUpdated = (u: any) => setMessages((p) => p.map((m) => (m.id === u.id ? u : m)));
     const onMsgDeleted = (id: number) => setMessages((p) => p.filter((m) => m.id !== id));
