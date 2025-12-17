@@ -5,7 +5,7 @@ import {
   Hash, Send, Plus, MessageSquare, LogOut, Paperclip, UserPlus, PhoneOff, Bell,
   Check, X, Settings, Trash2, UserMinus, Users, Volume2, Mic, MicOff, Smile, Edit2,
   Palette, Zap, ZapOff, Video, VideoOff, Monitor, MonitorOff, Volume1, VolumeX, Camera,
-  Maximize, Minimize, Keyboard, Sliders, Volume, Headphones, HeadphonesOff // Добавили иконки наушников
+  Maximize, Minimize, Keyboard, Sliders, Volume, Headphones, HeadphoneOff 
 } from "lucide-react";
 import io, { Socket } from "socket.io-client";
 import Peer from "simple-peer";
@@ -18,8 +18,7 @@ const SOUNDS = {
   msg: "data:audio/mpeg;base64,//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
   join: "data:audio/mp3;base64,//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
   leave: "data:audio/mp3;base64,//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
-  click: "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=",
-  deafen: "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=" // Placeholder for deafen sound
+  click: "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=" 
 };
 
 // ===== THEMES =====
@@ -107,12 +106,15 @@ const useStreamAnalyzer = (stream: MediaStream | null) => {
 const useProcessedStream = (rawStream: MediaStream | null, threshold: number, isMuted: boolean) => {
     const [processedStream, setProcessedStream] = useState<MediaStream | null>(null);
     const gainNodeRef = useRef<GainNode | null>(null);
+    const isMutedRef = useRef(isMuted);
+    const thresholdRef = useRef(threshold);
 
-    // Apply Mute Effect Immediately via Ref to avoid stream recreation
+    useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
+    useEffect(() => { thresholdRef.current = threshold; }, [threshold]);
+
     useEffect(() => {
         if (gainNodeRef.current) {
             const ctx = gainNodeRef.current.context;
-            // Immediate mute/unmute
             gainNodeRef.current.gain.cancelScheduledValues(ctx.currentTime);
             gainNodeRef.current.gain.setValueAtTime(isMuted ? 0 : 1, ctx.currentTime);
         }
@@ -120,9 +122,7 @@ const useProcessedStream = (rawStream: MediaStream | null, threshold: number, is
 
     useEffect(() => {
         if (!rawStream) return;
-        // If screen sharing (video present), bypass gate
-        if (rawStream.getVideoTracks().length > 0) { setProcessedStream(rawStream); return; }
-        if (rawStream.getAudioTracks().length === 0) { setProcessedStream(rawStream); return; }
+        if (rawStream.getVideoTracks().length > 0 || rawStream.getAudioTracks().length === 0) { setProcessedStream(rawStream); return; }
 
         const ctx = getAudioContext();
         if (!ctx) return;
@@ -137,20 +137,18 @@ const useProcessedStream = (rawStream: MediaStream | null, threshold: number, is
         analyser.connect(gainNode);
         gainNode.connect(destination);
         
-        gainNodeRef.current = gainNode; // Store ref for immediate mute
+        gainNodeRef.current = gainNode;
 
         let interval: any;
         const processAudio = () => {
-            // If physically muted, don't run gate logic, keep it 0
-            if (gainNodeRef.current?.gain.value === 0 && isMuted) return;
+            if (gainNodeRef.current?.gain.value === 0 && isMutedRef.current) return;
 
             const data = new Uint8Array(analyser.frequencyBinCount);
             analyser.getByteFrequencyData(data);
             let sum = 0; for (let i = 0; i < data.length; i++) sum += data[i];
             
-            // If not muted by button, apply Noise Gate
-            if (!isMuted) {
-                if ((sum / data.length) > threshold) { 
+            if (!isMutedRef.current) {
+                if ((sum / data.length) > thresholdRef.current) { 
                     gainNode.gain.setTargetAtTime(1, ctx.currentTime, 0.05); 
                 } else { 
                     gainNode.gain.setTargetAtTime(0, ctx.currentTime, 0.2); 
@@ -162,7 +160,7 @@ const useProcessedStream = (rawStream: MediaStream | null, threshold: number, is
         setProcessedStream(new MediaStream(newTracks));
 
         return () => { clearInterval(interval); source.disconnect(); analyser.disconnect(); gainNode.disconnect(); };
-    }, [rawStream, threshold]); // Removed isMuted from deps to prevent re-creation
+    }, [rawStream]);
 
     return processedStream;
 };
@@ -182,7 +180,6 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
     const checkStatus = () => {
         setHasVideo(stream.getVideoTracks().length > 0 && stream.getVideoTracks()[0].enabled);
         const audioTrack = stream.getAudioTracks()[0];
-        // If track is disabled OR gain is 0 (software mute), consider it muted
         setIsAudioEnabled(audioTrack ? audioTrack.enabled : false);
     };
     const statusInterval = setInterval(checkStatus, 500);
@@ -204,9 +201,7 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
 
   const objectFitClass = (isScreenShare || isFullscreen) ? 'object-contain' : 'object-cover';
   const containerClass = isFullscreen ? 'fixed inset-0 z-50 bg-black rounded-none flex flex-col items-center justify-center' : 'flex flex-col items-center justify-center p-2 h-full w-full relative bg-black/40 rounded-xl overflow-hidden border border-white/10 group transition-all';
-
-  // LOGIC: If I am deafened (globalDeaf), mute EVERYONE remote. 
-  // Local video is always muted to prevent echo.
+  
   const shouldMuteVideoElement = isLocal || (globalDeaf === true);
 
   return (
@@ -233,7 +228,6 @@ const GroupPeerWrapper = ({ peer, peerID, outputDeviceId, allUsers, globalDeaf }
   const [stream, setStream] = useState<MediaStream | null>(null);
   useEffect(() => { const onStream = (s: MediaStream) => setStream(s); peer.on("stream", onStream); if ((peer as any)._remoteStreams?.length) setStream((peer as any)._remoteStreams[0]); return () => { peer.off("stream", onStream); }; }, [peer]);
   const u = allUsers.find((x: any) => x.socketId === peerID);
-  // Pass globalDeaf prop down
   return <UserMediaComponent stream={stream} isLocal={false} userId={peerID} userAvatar={u?.avatar} username={u?.username || "Connecting..."} outputDeviceId={outputDeviceId} isScreenShare={false} globalDeaf={globalDeaf}/>;
 };
 
@@ -300,12 +294,11 @@ export default function EcoTalkApp() {
   const peersRef = useRef<{ peerID: string; peer: Peer.Instance }[]>([]);
   
   // === MUTE & DEAFEN STATE ===
-  const [isMuted, setIsMuted] = useState(false); // Local Mic
-  const [isDeafened, setIsDeafened] = useState(false); // Global Audio Output
+  const [isMuted, setIsMuted] = useState(false);
+  const [isDeafened, setIsDeafened] = useState(false);
   
   const [isVideoOn, setIsVideoOn] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
-  
   const processedStream = useProcessedStream(myStream, voiceThreshold, isMuted);
   const [muteKey, setMuteKey] = useState<string | null>(null);
   const [isRecordingKey, setIsRecordingKey] = useState(false);
@@ -406,8 +399,34 @@ export default function EcoTalkApp() {
   const handleNotification = async (id: number, action: "ACCEPT" | "DECLINE") => { if (!token) return; if (action === "ACCEPT") { const notif = notifications.find((n) => n.id === id); if (notif?.type === "FRIEND_REQUEST" && notif.sender) { setMyFriends((prev) => (prev.find((x) => x.id === notif.sender.id) ? prev : [...prev, notif.sender])); } } setNotifications((prev) => prev.filter((n) => n.id !== id)); await fetch(`${SOCKET_URL}/api/notifications/respond`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: token }, body: JSON.stringify({ notificationId: id, action }), }); if (action === "ACCEPT") fetchUserData(token); playSound("click"); };
   const addFriend = async () => { if (!token) return; const res = await fetch(`${SOCKET_URL}/api/friends/invite`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: token }, body: JSON.stringify({ username: friendName }), }); if (res.ok) { setFriendName(""); setShowAddFriend(false); alert("Sent!"); } else alert("Error"); };
   const inviteUser = async () => { if (!token || !activeServerId) return; const res = await fetch(`${SOCKET_URL}/api/servers/invite`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: token }, body: JSON.stringify({ serverId: activeServerId, username: inviteUserName }), }); if (res.ok) { alert("Sent!"); setInviteUserName(""); setShowInvite(false); } else { const data = await res.json(); alert(data.error); } };
-  const selectServer = async (serverId: number) => { if (!token) return; setActiveServerId(serverId); setActiveDM(null); if (activeVoiceChannel) leaveVoiceChannel(); const res = await fetch(`${SOCKET_URL}/api/server/${serverId}`, { headers: { Authorization: token } }); const data = await res.json(); setActiveServerData(data); setCurrentServerMembers(data.members.map((m: any) => m.user)); setMyServers((p) => p.map((s) => (s.id === serverId ? data : s))); const firstText = data.channels.find((c: any) => c.type === 'text'); if (firstText) selectChannel(firstText); else if (data.channels.length > 0) selectChannel(data.channels[0]); playSound("click"); };
-  const selectChannel = (c: any) => { if (activeVoiceChannel === c.id) { setActiveChannel(c); return; } if (c.type === 'voice') { if (activeVoiceChannel && activeVoiceChannel !== c.id) leaveVoiceChannel(); setActiveChannel(c); setActiveVoiceChannel(c.id); playSound("join"); navigator.mediaDevices.getUserMedia(getMediaConstraints(false)).then((s) => { setMyStream(s); setIsMuted(false); setIsDeafened(false); setIsVideoOn(false); setIsScreenSharing(false); }).catch((e) => { console.error(e); alert("Mic Error"); setActiveVoiceChannel(null); }); } else { setActiveChannel(c); setMessages([]); socket.emit("join_channel", { channelId: c.id }); playSound("click"); } };
+  const selectServer = async (serverId: number) => { 
+      if (!token) return; 
+      setActiveServerId(serverId); setActiveDM(null); 
+      if (activeVoiceChannel) leaveVoiceChannel(); 
+      const res = await fetch(`${SOCKET_URL}/api/server/${serverId}`, { headers: { Authorization: token } }); 
+      const data = await res.json(); 
+      setActiveServerData(data); 
+      setCurrentServerMembers(data.members.map((m: any) => m.user)); 
+      setMyServers((p) => p.map((s) => (s.id === serverId ? data : s))); 
+      
+      const firstText = data.channels.find((c: any) => c.type === 'text');
+      if (firstText) selectChannel(firstText);
+      else if (data.channels.length > 0) selectChannel(data.channels[0]);
+      
+      playSound("click"); 
+  };
+
+  const selectChannel = (c: any) => {
+    if (activeVoiceChannel === c.id) { setActiveChannel(c); return; }
+    if (c.type === 'voice') {
+        if (activeVoiceChannel && activeVoiceChannel !== c.id) leaveVoiceChannel();
+        setActiveChannel(c); setActiveVoiceChannel(c.id); playSound("join");
+        navigator.mediaDevices.getUserMedia(getMediaConstraints(false)).then((s) => { setMyStream(s); setIsMuted(false); setIsDeafened(false); setIsVideoOn(false); setIsScreenSharing(false); }).catch((e) => { console.error(e); alert("Mic Error"); setActiveVoiceChannel(null); });
+    } else {
+        setActiveChannel(c); setMessages([]); socket.emit("join_channel", { channelId: c.id }); playSound("click"); 
+    }
+  };
+
   const toggleVideo = async () => { if (!activeVoiceChannel) return; playSound("click"); if (isVideoOn || isScreenSharing) { const stream = await navigator.mediaDevices.getUserMedia(getMediaConstraints(false)); if (myStream) myStream.getTracks().forEach(t => t.stop()); setMyStream(stream); setIsVideoOn(false); setIsScreenSharing(false); } else { try { const stream = await navigator.mediaDevices.getUserMedia(getMediaConstraints(true)); if (myStream) myStream.getTracks().forEach(t => t.stop()); setMyStream(stream); setIsVideoOn(true); setIsScreenSharing(false); } catch (e) { console.error(e); alert("Could not start video"); } } };
   
   const toggleScreenShare = async () => { 
@@ -437,26 +456,20 @@ export default function EcoTalkApp() {
   };
   const leaveVoiceChannel = () => { if (myStream) myStream.getTracks().forEach((track) => track.stop()); setMyStream(null); setActiveVoiceChannel(null); setIsVideoOn(false); setIsScreenSharing(false); setIsDeafened(false); setIsMuted(false); playSound("leave"); if (activeChannel?.id === activeVoiceChannel) { const server = myServers.find((s) => s.id === activeServerId); const firstText = server?.channels?.find((c: any) => c.type === "text"); if (firstText) selectChannel(firstText); } };
   
-  // === TOGGLE MUTE (Mic) ===
   const toggleMute = () => { 
       if (!myStream) return; 
       playSound("click"); 
       const newState = !isMuted;
       setIsMuted(newState);
-      // Auto-undeafen if unmuting
       if (!newState && isDeafened) setIsDeafened(false);
   };
 
-  // === TOGGLE DEAFEN (Headphones) ===
   const toggleDeafen = () => {
       if (!myStream) return;
       playSound("click");
       const newState = !isDeafened;
       setIsDeafened(newState);
-      if (newState) {
-          // If deafening, ensure mic is muted
-          setIsMuted(true);
-      }
+      if (newState) setIsMuted(true);
   };
 
   const selectDM = (friend: any) => { if (friend.id === currentUser?.id) return; setActiveServerId(null); if (activeVoiceChannel) leaveVoiceChannel(); setActiveDM(friend); setActiveChannel(null); setMessages([]); const me = currentUser; if (!me) return; const ids = [me.id, friend.id].sort(); socket.emit("join_dm", { roomName: `dm_${ids[0]}_${ids[1]}` }); playSound("click"); };
