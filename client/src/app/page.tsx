@@ -12,14 +12,13 @@ import Peer from "simple-peer";
 // ===== CONSTANTS & SOUNDS =====
 const SOCKET_URL = "http://5.129.215.82:3001";
 const SFX = {
-  msg: "https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.m4a", // Message Pop
-  join: "https://assets.mixkit.co/active_storage/sfx/2578/2578-preview.m4a", // Join Tech
-  leave: "https://assets.mixkit.co/active_storage/sfx/2572/2572-preview.m4a", // Leave Tech
-  click: "https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.m4a", // Soft Click
-  call: "https://assets.mixkit.co/active_storage/sfx/1362/1362-preview.m4a"   // Ringtone (optional)
+  msg: "https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.m4a", // Сообщение
+  join: "https://assets.mixkit.co/active_storage/sfx/2578/2578-preview.m4a", // Вход
+  leave: "https://assets.mixkit.co/active_storage/sfx/2572/2572-preview.m4a", // Выход
+  click: "https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.m4a", // Клик
 };
 
-// ===== THEMES CSS =====
+// ===== THEMES =====
 const THEME_STYLES = `
   :root[data-theme="minimal"] { --bg-primary: #ffffff; --bg-secondary: #f9fafb; --bg-tertiary: #f3f4f6; --text-primary: #111827; --text-secondary: #6b7280; --accent: #10b981; --border: #e5e7eb; --font-family: 'Segoe UI', sans-serif; }
   :root[data-theme="neon"] { --bg-primary: #0f172a; --bg-secondary: #1e293b; --bg-tertiary: #334155; --text-primary: #f8fafc; --text-secondary: #94a3b8; --accent: #38bdf8; --border: #1e293b; --font-family: 'Courier New', monospace; }
@@ -31,9 +30,9 @@ let _socket: Socket | null = null;
 function getSocket() { if (!_socket) { _socket = io(SOCKET_URL, { transports: ["websocket"], withCredentials: true }); } return _socket; }
 const peerConfig = { iceServers: [ { urls: "stun:stun.l.google.com:19302" }, { urls: "stun:global.stun.twilio.com:3478" } ] };
 
-// --- SOUND HELPER ---
+// --- SOUND PLAY FUNCTION ---
 const playSfx = (type: keyof typeof SFX) => {
-  try { const audio = new Audio(SFX[type]); audio.volume = 0.4; audio.play().catch(() => {}); } catch (e) {}
+  try { const audio = new Audio(SFX[type]); audio.volume = 0.5; audio.play().catch(() => {}); } catch (e) {}
 };
 
 // --- AUDIO HELPERS ---
@@ -55,7 +54,7 @@ const useAudioActivity = (stream: MediaStream | undefined | null) => {
   return isSpeaking;
 };
 
-// --- USER MEDIA COMPONENT ---
+// --- COMPONENTS ---
 const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, username, outputDeviceId, isScreenShare }: { stream: MediaStream | null; isLocal: boolean; userId: string; userAvatar?: string; username?: string; outputDeviceId?: string; isScreenShare?: boolean; }) => {
   const videoRef = useRef<HTMLVideoElement>(null); const isSpeaking = useAudioActivity(stream); const [hasVideo, setHasVideo] = useState(false);
   useEffect(() => { if(!stream) { setHasVideo(false); return; } const checkVideo = () => setHasVideo(stream.getVideoTracks().length > 0 && stream.getVideoTracks()[0].enabled); checkVideo(); stream.getVideoTracks().forEach(track => { track.onmute = checkVideo; track.onunmute = checkVideo; track.onended = checkVideo; }); const interval = setInterval(checkVideo, 1000); return () => clearInterval(interval); }, [stream]);
@@ -166,7 +165,7 @@ export default function EcoTalkApp() {
   useEffect(() => {
     const onReceiveMessage = (msg: any) => {
       setMessages((p) => [...p, msg]);
-      if (msg.userId !== currentUserRef.current?.id) playSfx("msg"); // Sound!
+      if (msg.userId !== currentUserRef.current?.id) playSfx("msg"); // PLAY MESSAGE SOUND
       setMyFriends((prev) => {
         const currentUserId = currentUserRef.current?.id;
         let partnerId = msg.userId === currentUserId ? activeDMRef.current?.id : msg.userId;
@@ -198,9 +197,9 @@ export default function EcoTalkApp() {
     if (!activeVoiceChannel || !myStream) return;
     peersRef.current = []; setPeers([]);
     const handleAllUsers = (users: string[]) => { const fresh: { peerID: string; peer: Peer.Instance }[] = []; users.forEach((userID: string) => { if (userID === socket.id) return; if (peersRef.current.find((x) => x.peerID === userID)) return; const peer = createPeer(userID, socket.id!, myStream, socket); peersRef.current.push({ peerID: userID, peer }); fresh.push({ peerID: userID, peer }); }); if (fresh.length) setPeers((prev) => [...prev, ...fresh]); };
-    const handleUserJoined = (pl: any) => { if (!pl?.callerID || pl.callerID === socket.id || peersRef.current.find((x) => x.peerID === pl.callerID)) return; const peer = addPeer(pl.signal, pl.callerID, myStream, socket); peersRef.current.push({ peerID: pl.callerID, peer }); setPeers((prev) => [...prev, { peerID: pl.callerID, peer }]); playSfx("join"); };
+    const handleUserJoined = (pl: any) => { if (!pl?.callerID || pl.callerID === socket.id || peersRef.current.find((x) => x.peerID === pl.callerID)) return; const peer = addPeer(pl.signal, pl.callerID, myStream, socket); peersRef.current.push({ peerID: pl.callerID, peer }); setPeers((prev) => [...prev, { peerID: pl.callerID, peer }]); playSfx("join"); }; // PLAY JOIN SOUND
     const handleReturned = (pl: any) => { const item = peersRef.current.find((p) => p.peerID === pl.id); if (item && !item.peer.destroyed) item.peer.signal(pl.signal); };
-    const handleLeft = (id: string) => { const p = peersRef.current.find((x) => x.peerID === id); if (p) p.peer.destroy(); setPeers(peersRef.current.filter((x) => x.peerID !== id)); peersRef.current = peersRef.current.filter((x) => x.peerID !== id); playSfx("leave"); };
+    const handleLeft = (id: string) => { const p = peersRef.current.find((x) => x.peerID === id); if (p) p.peer.destroy(); setPeers(peersRef.current.filter((x) => x.peerID !== id)); peersRef.current = peersRef.current.filter((x) => x.peerID !== id); playSfx("leave"); }; // PLAY LEAVE SOUND
     socket.on("all_users_in_voice", handleAllUsers); socket.on("user_joined_voice", handleUserJoined); socket.on("receiving_returned_signal", handleReturned); socket.on("user_left_voice", handleLeft);
     const t = setTimeout(() => socket.emit("join_voice_channel", activeVoiceChannel), 100);
     return () => { clearTimeout(t); socket.off("all_users_in_voice", handleAllUsers); socket.off("user_joined_voice", handleUserJoined); socket.off("receiving_returned_signal", handleReturned); socket.off("user_left_voice", handleLeft); peersRef.current.forEach((p) => p.peer.destroy()); peersRef.current = []; setPeers([]); socket.emit("leave_voice_channel"); };
@@ -238,7 +237,7 @@ export default function EcoTalkApp() {
   const selectChannel = (c: any) => {
     if (activeVoiceChannel === c.id) return; if (activeVoiceChannel && c.type !== "voice") leaveVoiceChannel(); setActiveChannel(c);
     if (c.type === "voice") {
-      setActiveVoiceChannel(c.id); playSfx("join");
+      setActiveVoiceChannel(c.id); playSfx("join"); // PLAY JOIN SOUND
       navigator.mediaDevices.getUserMedia(getMediaConstraints(false)).then((s) => { setMyStream(s); setIsMuted(false); setIsVideoOn(false); setIsScreenSharing(false); }).catch((e) => { console.error(e); alert("Mic Error"); setActiveVoiceChannel(null); });
     } else { setMessages([]); socket.emit("join_channel", { channelId: c.id }); playSfx("click"); }
   };
