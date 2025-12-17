@@ -6,7 +6,7 @@ import {
   Check, X, Settings, Trash2, UserMinus, Users, Volume2, Mic, MicOff, Smile, Edit2,
   Palette, Zap, ZapOff, Video, VideoOff, Monitor, MonitorOff, Volume1, VolumeX, Camera,
   Maximize, Minimize, Keyboard, Sliders, Volume, Headphones, HeadphoneOff, WifiOff, 
-  UploadCloud, ShoppingBag, Coins, Gift
+  UploadCloud, ShoppingBag, Coins, Gift, Package, Star, Sparkles
 } from "lucide-react";
 import io, { Socket } from "socket.io-client";
 import Peer from "simple-peer";
@@ -14,16 +14,34 @@ import Peer from "simple-peer";
 // ===== CONSTANTS =====
 const SOCKET_URL = "http://5.129.215.82:3001";
 
-// ===== SHOP ITEMS (FIXED STYLES) =====
+// ===== SHOP SYSTEM =====
+type Rarity = 'common' | 'rare' | 'epic' | 'legendary';
+const RARITY_COLORS: Record<Rarity, string> = {
+    common: '#9ca3af',   // Gray
+    rare: '#3b82f6',     // Blue
+    epic: '#a855f7',     // Purple
+    legendary: '#eab308' // Gold
+};
+
 const SHOP_ITEMS = [
-  { id: 'color_gold', type: 'color', name: 'Golden Name', price: 200, value: '#FFD700' },
-  { id: 'color_neon', type: 'color', name: 'Neon Blue', price: 150, value: '#00FFFF' },
-  { id: 'color_rose', type: 'color', name: 'Rose Pink', price: 150, value: '#FF007F' },
-  { id: 'color_lime', type: 'color', name: 'Toxic Lime', price: 150, value: '#39FF14' },
-  // Исправлено: стили теперь объекты React.CSSProperties
-  { id: 'frame_fire', type: 'frame', name: 'Fire Aura', price: 500, css: { boxShadow: '0 0 15px 2px #FF4500, inset 0 0 10px #FFD700' } },
-  { id: 'frame_ice', type: 'frame', name: 'Ice Frozen', price: 500, css: { boxShadow: '0 0 15px 2px #00BFFF, inset 0 0 10px #E0FFFF' } },
-  { id: 'frame_nature', type: 'frame', name: 'Eco Leaves', price: 300, css: { border: '3px solid #32CD32', boxShadow: '0 0 10px #228B22' } },
+  // COLORS
+  { id: 'col_gold', type: 'color', name: 'Golden Soul', price: 500, rarity: 'legendary', value: '#FFD700' },
+  { id: 'col_neon', type: 'color', name: 'Cyber Blue', price: 300, rarity: 'epic', value: '#00FFFF' },
+  { id: 'col_rose', type: 'color', name: 'Rose Pink', price: 150, rarity: 'rare', value: '#FF007F' },
+  { id: 'col_lime', type: 'color', name: 'Acid Green', price: 150, rarity: 'rare', value: '#39FF14' },
+  { id: 'col_red', type: 'color', name: 'Crimson', price: 100, rarity: 'common', value: '#DC143C' },
+
+  // FRAMES
+  { id: 'frm_fire', type: 'frame', name: 'Inferno', price: 1000, rarity: 'legendary', css: { boxShadow: '0 0 15px 4px #FF4500, inset 0 0 10px #FFD700', border: '2px solid #FF4500' } },
+  { id: 'frm_ice', type: 'frame', name: 'Frostbite', price: 600, rarity: 'epic', css: { boxShadow: '0 0 15px 4px #00BFFF, inset 0 0 10px #E0FFFF', border: '2px solid #00BFFF' } },
+  { id: 'frm_eco', type: 'frame', name: 'Eco Vibe', price: 300, rarity: 'rare', css: { border: '3px solid #32CD32', boxShadow: '0 0 10px #228B22' } },
+  { id: 'frm_basic', type: 'frame', name: 'Iron Ring', price: 100, rarity: 'common', css: { border: '3px solid #6b7280' } },
+
+  // BUBBLES (New!)
+  { id: 'bub_space', type: 'bubble', name: 'Space Void', price: 800, rarity: 'epic', css: { background: 'linear-gradient(135deg, #0f172a 0%, #312e81 100%)', border: '1px solid #6366f1', color: 'white' } },
+  { id: 'bub_sunset', type: 'bubble', name: 'Sunset Glow', price: 500, rarity: 'rare', css: { background: 'linear-gradient(to right, #f97316, #db2777)', color: 'white' } },
+  { id: 'bub_ghost', type: 'bubble', name: 'Ghost', price: 400, rarity: 'rare', css: { backgroundColor: 'rgba(255,255,255,0.1)', backdropFilter: 'blur(4px)', border: '1px solid rgba(255,255,255,0.2)' } },
+  { id: 'bub_matrix', type: 'bubble', name: 'Matrix', price: 1000, rarity: 'legendary', css: { backgroundColor: 'black', color: '#00FF00', border: '1px solid #00FF00', fontFamily: 'monospace' } },
 ];
 
 // ===== SOUNDS (Base64) =====
@@ -32,7 +50,8 @@ const SOUNDS = {
   join: "data:audio/mp3;base64,//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
   leave: "data:audio/mp3;base64,//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
   click: "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=",
-  cash: "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=" 
+  cash: "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=",
+  rare: "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=" 
 };
 
 // ===== THEMES =====
@@ -45,9 +64,10 @@ const THEME_STYLES = `
   input[type=range] { -webkit-appearance: none; background: transparent; }
   input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 14px; width: 14px; border-radius: 50%; background: white; cursor: pointer; margin-top: -5px; box-shadow: 0 0 2px rgba(0,0,0,0.5); }
   input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; cursor: pointer; background: rgba(255,255,255,0.3); border-radius: 2px; }
-  
   .shop-grid::-webkit-scrollbar { width: 6px; }
   .shop-grid::-webkit-scrollbar-thumb { background-color: rgba(255,255,255,0.2); border-radius: 3px; }
+  @keyframes shake { 0% { transform: translate(1px, 1px) rotate(0deg); } 10% { transform: translate(-1px, -2px) rotate(-1deg); } 20% { transform: translate(-3px, 0px) rotate(1deg); } 30% { transform: translate(3px, 2px) rotate(0deg); } 40% { transform: translate(1px, -1px) rotate(1deg); } 50% { transform: translate(-1px, 2px) rotate(-1deg); } 60% { transform: translate(-3px, 1px) rotate(0deg); } 70% { transform: translate(3px, 1px) rotate(-1deg); } 80% { transform: translate(-1px, -1px) rotate(1deg); } 90% { transform: translate(1px, 2px) rotate(0deg); } 100% { transform: translate(1px, -2px) rotate(-1deg); } }
+  .animate-shake { animation: shake 0.5s; animation-iteration-count: infinite; }
 `;
 
 let _socket: Socket | null = null;
@@ -58,7 +78,7 @@ const peerConfig = { iceServers: [ { urls: "stun:stun.l.google.com:19302" }, { u
 let globalAudioContext: AudioContext | null = null;
 const getAudioContext = () => { if (!globalAudioContext) { const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext; if (AudioContextClass) globalAudioContext = new AudioContextClass(); } return globalAudioContext; };
 
-const playSoundEffect = (type: 'msg' | 'join' | 'leave' | 'click' | 'cash') => {
+const playSoundEffect = (type: 'msg' | 'join' | 'leave' | 'click' | 'cash' | 'rare') => {
   const ctx = getAudioContext();
   if (!ctx) return;
   if (ctx.state === 'suspended') ctx.resume().catch(() => {});
@@ -79,6 +99,15 @@ const playSoundEffect = (type: 'msg' | 'join' | 'leave' | 'click' | 'cash') => {
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
     osc.type = 'triangle';
     osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.4);
+  } else if (type === 'rare') {
+    const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.setValueAtTime(400, ctx.currentTime);
+    osc.frequency.linearRampToValueAtTime(1000, ctx.currentTime + 0.5);
+    gain.gain.setValueAtTime(0.2, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 1);
+    osc.type = 'square';
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 1);
   } else {
     const osc = ctx.createOscillator(); const gain = ctx.createGain();
     osc.connect(gain); gain.connect(ctx.destination);
@@ -142,6 +171,7 @@ const useProcessedStream = (rawStream: MediaStream | null, threshold: number, is
         if (gainNodeRef.current) {
             const ctx = gainNodeRef.current.context;
             gainNodeRef.current.gain.cancelScheduledValues(ctx.currentTime);
+            // Software Mute Logic
             gainNodeRef.current.gain.setValueAtTime(isMuted ? 0 : 1, ctx.currentTime);
         }
     }, [isMuted]);
@@ -201,6 +231,7 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [volume, setVolume] = useState(1);
 
+  // Check for video tracks
   useEffect(() => {
     if(!stream) { setHasVideo(false); return; }
     const checkStatus = () => {
@@ -226,6 +257,8 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
   const toggleFullscreen = () => { if (!containerRef.current) return; if (!document.fullscreenElement) { containerRef.current.requestFullscreen().catch(err => console.log(err)); } else { document.exitFullscreen(); } };
 
   const objectFitClass = (isScreenShare || isFullscreen) ? 'object-contain' : 'object-cover';
+  
+  // Conditionally render styling for PIP (miniMode)
   const containerClass = miniMode 
     ? 'relative bg-black rounded-lg overflow-hidden border border-white/20 w-full h-full' 
     : (isFullscreen 
@@ -235,7 +268,7 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
   const shouldMuteVideoElement = isLocal || (globalDeaf === true);
   const avatarSize = miniMode ? "w-8 h-8" : "w-24 h-24";
 
-  // CUSTOMIZATION LOGIC (Fixed)
+  // CUSTOMIZATION LOGIC
   const frameStyle: React.CSSProperties | undefined = userCustom?.frame ? SHOP_ITEMS.find(i => i.id === userCustom.frame)?.css : undefined;
   const nameColor = userCustom?.color ? SHOP_ITEMS.find(i => i.id === userCustom.color)?.value : null;
 
@@ -374,15 +407,22 @@ export default function EcoTalkApp() {
   const [isDragging, setIsDragging] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
   const [viewingImage, setViewingImage] = useState<string | null>(null);
+  
+  // --- SHOP STATE ---
   const [showShop, setShowShop] = useState(false);
+  const [shopTab, setShopTab] = useState<'all' | 'color' | 'frame' | 'bubble' | 'lootbox'>('all');
   const [ecoCoins, setEcoCoins] = useState(0);
   const [myInventory, setMyInventory] = useState<string[]>([]);
-  const [myCustomization, setMyCustomization] = useState<{frame?: string, color?: string}>({});
+  const [myCustomization, setMyCustomization] = useState<{frame?: string, color?: string, bubble?: string}>({});
   const [dailyClaimed, setDailyClaimed] = useState(false);
   const [showDailyModal, setShowDailyModal] = useState(false);
+  
+  // Lootbox
+  const [isOpeningBox, setIsOpeningBox] = useState(false);
+  const [lootResult, setLootResult] = useState<any>(null);
 
   useEffect(() => { const savedTheme = localStorage.getItem("eco_theme"); if (savedTheme) { setTheme(savedTheme); document.documentElement.setAttribute('data-theme', savedTheme); } }, []);
-  const playSound = (type: 'msg' | 'join' | 'leave' | 'click' | 'cash') => { if (soundEnabled) playSoundEffect(type); };
+  const playSound = (type: 'msg' | 'join' | 'leave' | 'click' | 'cash' | 'rare') => { if (soundEnabled) playSoundEffect(type); };
   const formatLastSeen = (d: string) => { if (!d) return "Offline"; const diff = Math.floor((Date.now() - new Date(d).getTime()) / 60000); if (diff < 1) return "Just now"; if (diff < 60) return `${diff}m ago`; const hours = Math.floor(diff / 60); return hours < 24 ? `${hours}h ago` : new Date(d).toLocaleDateString(); };
   const formatDateHeader = (d: string) => { const date = new Date(d); const now = new Date(); const yesterday = new Date(); yesterday.setDate(now.getDate() - 1); if (date.toDateString() === now.toDateString()) return "Today"; if (date.toDateString() === yesterday.toDateString()) return "Yesterday"; return date.toLocaleDateString(); };
 
@@ -405,8 +445,63 @@ export default function EcoTalkApp() {
   }, [token]);
 
   const claimDailyBonus = () => { const newBalance = ecoCoins + 100; setEcoCoins(newBalance); localStorage.setItem('eco_coins', String(newBalance)); localStorage.setItem('eco_last_login', new Date().toDateString()); setDailyClaimed(true); setShowDailyModal(false); playSound('cash'); };
-  const buyItem = (item: any) => { if (ecoCoins >= item.price) { if (myInventory.includes(item.id)) return; const newBalance = ecoCoins - item.price; const newInv = [...myInventory, item.id]; setEcoCoins(newBalance); setMyInventory(newInv); localStorage.setItem('eco_coins', String(newBalance)); localStorage.setItem('eco_inventory', JSON.stringify(newInv)); playSound('cash'); } else { alert("Not enough EcoCoins!"); } };
-  const toggleEquip = (item: any) => { const newCustom = { ...myCustomization }; if (item.type === 'frame') { newCustom.frame = newCustom.frame === item.id ? undefined : item.id; } else { newCustom.color = newCustom.color === item.id ? undefined : item.id; } setMyCustomization(newCustom); localStorage.setItem('eco_customization', JSON.stringify(newCustom)); playSound('click'); broadcastCustomization(newCustom); };
+  
+  const buyItem = (item: any) => { 
+      if (ecoCoins >= item.price) { 
+          if (myInventory.includes(item.id)) return; 
+          const newBalance = ecoCoins - item.price; 
+          const newInv = [...myInventory, item.id]; 
+          setEcoCoins(newBalance); 
+          setMyInventory(newInv); 
+          localStorage.setItem('eco_coins', String(newBalance)); 
+          localStorage.setItem('eco_inventory', JSON.stringify(newInv)); 
+          playSound('cash'); 
+      } else { alert("Not enough EcoCoins!"); } 
+  };
+  
+  const toggleEquip = (item: any) => { 
+      const newCustom = { ...myCustomization }; 
+      if (item.type === 'frame') newCustom.frame = newCustom.frame === item.id ? undefined : item.id;
+      else if (item.type === 'color') newCustom.color = newCustom.color === item.id ? undefined : item.id;
+      else if (item.type === 'bubble') newCustom.bubble = newCustom.bubble === item.id ? undefined : item.id;
+      setMyCustomization(newCustom); 
+      localStorage.setItem('eco_customization', JSON.stringify(newCustom)); 
+      playSound('click'); 
+      broadcastCustomization(newCustom); 
+  };
+
+  const openLootbox = () => {
+      if (ecoCoins < 100) return alert("Need 100 Coins!");
+      setEcoCoins(prev => {
+          const n = prev - 100;
+          localStorage.setItem('eco_coins', String(n));
+          return n;
+      });
+      setIsOpeningBox(true);
+      playSound('click');
+      
+      setTimeout(() => {
+          const rand = Math.random() * 100;
+          let pool: any[] = [];
+          if (rand < 50) pool = SHOP_ITEMS.filter(i => i.rarity === 'common');
+          else if (rand < 80) pool = SHOP_ITEMS.filter(i => i.rarity === 'rare');
+          else if (rand < 95) pool = SHOP_ITEMS.filter(i => i.rarity === 'epic');
+          else pool = SHOP_ITEMS.filter(i => i.rarity === 'legendary');
+
+          const item = pool[Math.floor(Math.random() * pool.length)];
+          setLootResult(item);
+          setIsOpeningBox(false);
+          
+          if (!myInventory.includes(item.id)) {
+              const newInv = [...myInventory, item.id];
+              setMyInventory(newInv);
+              localStorage.setItem('eco_inventory', JSON.stringify(newInv));
+          }
+          
+          if (item.rarity === 'legendary' || item.rarity === 'epic') playSound('rare');
+          else playSound('cash');
+      }, 2000);
+  };
 
   useEffect(() => {
     const handleOffline = () => setIsOffline(true);
@@ -747,6 +842,7 @@ export default function EcoTalkApp() {
                     const showDate = i===0 || formatDateHeader(messages[i-1].createdAt) !== formatDateHeader(m.createdAt);
                     const msgNameColor = m.userCustom?.color ? SHOP_ITEMS.find(it => it.id === m.userCustom.color)?.value : '';
                     const msgFrameStyle = m.userCustom?.frame ? SHOP_ITEMS.find(it => it.id === m.userCustom.frame)?.css : undefined;
+                    const msgBubbleStyle = m.userCustom?.bubble ? SHOP_ITEMS.find(it => it.id === m.userCustom.bubble)?.css : undefined;
                     
                     return (
                         <div key={m.id} className="group relative hover:bg-[var(--bg-secondary)] p-2 rounded transition-colors">
@@ -763,7 +859,12 @@ export default function EcoTalkApp() {
                                  {editingMessageId === m.id ? (
                                     <div className="mt-1"><input className="w-full border p-1 rounded text-sm bg-[var(--bg-tertiary)] text-[var(--text-primary)]" value={editInputText} onChange={e=>setEditInputText(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submitEdit(m.id)} autoFocus/><div className="text-[10px] text-[var(--text-secondary)] mt-1">Esc to cancel • Enter to save</div></div>
                                  ) : (
-                                    <div className="text-[var(--text-primary)] text-sm whitespace-pre-wrap">{m.content}</div>
+                                    <div 
+                                        className="text-[var(--text-primary)] text-sm whitespace-pre-wrap p-2 rounded-lg"
+                                        style={msgBubbleStyle || {}}
+                                    >
+                                        {m.content}
+                                    </div>
                                  )}
                                  {m.imageUrl && (
                                     <img 
@@ -810,37 +911,7 @@ export default function EcoTalkApp() {
              </>
           )}
         </div>
-        {activeServerId && showMembersPanel && (<div className="w-60 bg-[var(--bg-secondary)] border-l border-[var(--border)] p-3 hidden lg:block overflow-y-auto"><h3 className="text-xs font-bold text-[var(--text-secondary)] mb-2">MEMBERS — {currentServerMembers.length}</h3>{currentServerMembers.map(member => (<div key={member.id} className="flex items-center justify-between group p-2 hover:bg-[var(--bg-tertiary)] rounded cursor-pointer" onClick={() => selectDM(member)}><div className="flex items-center gap-2"><div className="relative w-8 h-8 flex-shrink-0"><img src={member.avatar} className="rounded-full w-full h-full object-cover"/><div className={`absolute bottom-0 right-0 w-2.5 h-2.5 border-2 border-white rounded-full ${member.status==='online'?'bg-green-500':'bg-gray-400'}`}></div></div><div className="flex flex-col"><span className={`font-medium text-sm leading-tight ${member.id === activeServerData?.ownerId ? 'text-yellow-600' : 'text-[var(--text-primary)]'}`}>{member.username}</span></div></div></div>))}</div>)}
-        {showServerSettings && <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50"><div className="bg-white p-6 rounded-xl w-96 shadow-2xl"><div className="flex items-center justify-between mb-4"><h3 className="font-bold text-xl text-gray-900">Server Settings</h3><button className="text-sm text-gray-500" onClick={()=>setShowServerSettings(false)}>Close</button></div><label className="text-xs font-bold text-gray-500">ICON</label><div className="flex items-center gap-4 mb-4"><div className="w-16 h-16 rounded-xl bg-gray-200 overflow-hidden flex items-center justify-center">{editServerIcon ? <img src={editServerIcon} className="w-full h-full object-cover"/> : <span className="text-2xl font-bold text-gray-400">{editServerName?.[0]}</span>}</div><input type="file" ref={serverIconInputRef} hidden accept="image/*" onChange={(e)=>handleAvatarUpload(e, false)}/><button onClick={()=>serverIconInputRef.current?.click()} className="text-sm text-green-600 hover:underline">Change</button></div><label className="text-xs font-bold text-gray-500">NAME</label><input className="w-full border p-2 rounded mb-4" value={editServerName} onChange={e=>setEditServerName(e.target.value)}/><label className="text-xs font-bold text-gray-500">DESCRIPTION</label><textarea className="w-full border p-2 rounded mb-6 h-20 resize-none" value={editServerDesc} onChange={e=>setEditServerDesc(e.target.value)}/><div className="flex justify-between gap-2"><button onClick={openServerSettings} className="text-sm text-gray-500 hover:underline">Refresh</button><div className="flex gap-2"><button onClick={deleteServer} className="px-4 py-2 text-white bg-red-600 rounded">Delete</button><button onClick={updateServer} className="px-4 py-2 text-white bg-green-600 rounded">Save</button></div></div></div></div>}
-        {editingChannel && <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50"><div className="bg-white p-6 rounded-xl w-80 shadow-2xl"><h3 className="font-bold text-xl mb-4 text-gray-900">Edit Channel</h3><input className="w-full border p-2 rounded mb-4" value={newChannelName} onChange={e=>setNewChannelName(e.target.value)}/><div className="flex justify-between"><button onClick={deleteChannel} className="text-red-500 text-sm hover:underline flex items-center"><Trash2 size={14} className="mr-1"/> Delete</button><div className="flex gap-2"><button onClick={()=>setEditingChannel(null)}>Cancel</button><button onClick={updateChannel} className="bg-green-600 text-white px-4 py-2 rounded">Save</button></div></div></div></div>}
-        {showUserSettings && (
-          <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-[var(--bg-primary)] p-6 rounded-xl w-96 shadow-2xl overflow-y-auto max-h-[80vh] border border-[var(--border)] text-[var(--text-primary)]">
-              <h3 className="font-bold text-xl mb-4">Profile</h3>
-              <div className="flex flex-col items-center mb-6">
-                <div className="w-24 h-24 rounded-full bg-gray-200 overflow-hidden mb-2 relative group cursor-pointer" onClick={() => avatarInputRef.current?.click()}>
-                   <img src={currentUser?.avatar} className="w-full h-full object-cover"/>
-                   <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-full"><Camera className="text-white"/></div>
-                </div>
-                <input type="file" ref={avatarInputRef} hidden accept="image/*" onChange={(e) => handleAvatarUpload(e, true)} />
-                <input className="text-center font-bold text-lg border-b border-transparent hover:border-gray-300 focus:border-green-500 outline-none bg-transparent" value={editUserName} onChange={e=>setEditUserName(e.target.value)}/>
-              </div>
-              <div className="mb-6"><h4 className="text-sm font-bold text-[var(--text-secondary)] mb-2 border-b border-[var(--border)] pb-1 flex items-center"><Palette size={14} className="mr-1"/> THEME</h4><div className="flex gap-2 mt-2"><button onClick={() => setTheme('minimal')} className={`flex-1 py-1 text-xs font-bold rounded border ${theme==='minimal'?'bg-gray-200 text-black border-black':'border-gray-300 text-gray-500'}`}>Minimal</button><button onClick={() => setTheme('neon')} className={`flex-1 py-1 text-xs font-bold rounded border ${theme==='neon'?'bg-slate-900 text-cyan-400 border-cyan-400':'border-gray-300 text-gray-500'}`}>Neon</button><button onClick={() => setTheme('vintage')} className={`flex-1 py-1 text-xs font-bold rounded border ${theme==='vintage'?'bg-amber-100 text-amber-900 border-amber-900':'border-gray-300 text-gray-500'}`}>Vintage</button></div></div>
-              <div className="mb-6"><h4 className="text-sm font-bold text-[var(--text-secondary)] mb-2 border-b border-[var(--border)] pb-1">AUDIO SETTINGS</h4><label className="text-xs font-bold text-[var(--text-secondary)] block mb-1">MICROPHONE</label><select className="w-full p-2 border rounded mb-3 text-sm bg-[var(--bg-tertiary)]" value={selectedMicId} onChange={(e) => saveAudioSettings(e.target.value, selectedSpeakerId, enableNoiseSuppression, soundEnabled, voiceThreshold)}><option value="">Default</option>{audioInputs.map(d => <option key={d.deviceId} value={d.deviceId}>{d.label || `Microphone ${d.deviceId}`}</option>)}</select><label className="text-xs font-bold text-[var(--text-secondary)] block mb-1">SPEAKERS</label><select className="w-full p-2 border rounded text-sm bg-[var(--bg-tertiary)] mb-3" value={selectedSpeakerId} onChange={(e) => saveAudioSettings(selectedMicId, e.target.value, enableNoiseSuppression, soundEnabled, voiceThreshold)}><option value="">Default</option>{audioOutputs.map(d => <option key={d.deviceId} value={d.deviceId}>{d.label || `Speaker ${d.deviceId}`}</option>)}</select>
-              <div className="flex items-center justify-between p-2 border rounded bg-[var(--bg-tertiary)] cursor-pointer mb-2" onClick={() => saveAudioSettings(selectedMicId, selectedSpeakerId, !enableNoiseSuppression, soundEnabled, voiceThreshold)}><div className="flex items-center text-sm font-bold">{enableNoiseSuppression && <Zap size={16} className="text-yellow-500 mr-2"/>}{!enableNoiseSuppression && <ZapOff size={16} className="text-gray-400 mr-2"/>} Noise Suppression (AI)</div><div className={`w-8 h-4 rounded-full relative transition-colors ${enableNoiseSuppression ? 'bg-green-500' : 'bg-gray-400'}`}><div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${enableNoiseSuppression ? 'left-4.5' : 'left-0.5'}`}></div></div></div>
-              <div className="mb-2"><div className="flex justify-between items-center mb-1"><label className="text-xs font-bold text-[var(--text-secondary)] flex items-center"><Sliders size={12} className="mr-1"/> VOICE ACTIVATION LEVEL</label><span className="text-xs font-mono">{voiceThreshold}%</span></div><input type="range" min="0" max="100" value={voiceThreshold} onChange={(e) => saveAudioSettings(selectedMicId, selectedSpeakerId, enableNoiseSuppression, soundEnabled, Number(e.target.value))} className="w-full h-2 bg-[var(--border)] rounded-lg appearance-none cursor-pointer"/></div>
-              <div className="flex items-center justify-between p-2 border rounded bg-[var(--bg-tertiary)] cursor-pointer" onClick={() => saveAudioSettings(selectedMicId, selectedSpeakerId, enableNoiseSuppression, !soundEnabled, voiceThreshold)}><div className="flex items-center text-sm font-bold">{soundEnabled && <Volume2 size={16} className="text-blue-500 mr-2"/>}{!soundEnabled && <VolumeX size={16} className="text-gray-400 mr-2"/>} Sound Effects</div><div className={`w-8 h-4 rounded-full relative transition-colors ${soundEnabled ? 'bg-blue-500' : 'bg-gray-400'}`}><div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${soundEnabled ? 'left-4.5' : 'left-0.5'}`}></div></div></div>
-              <div className="mt-4 border-t border-[var(--border)] pt-4"><h4 className="text-sm font-bold text-[var(--text-secondary)] mb-2 flex items-center"><Keyboard size={14} className="mr-1"/> HOTKEYS</h4><div className="flex items-center justify-between p-2 border rounded bg-[var(--bg-tertiary)]"><span className="text-sm font-bold">Toggle Mute</span><button onClick={() => setIsRecordingKey(true)} className={`px-3 py-1 rounded text-xs font-bold transition-all ${isRecordingKey ? 'bg-red-500 text-white animate-pulse' : (muteKey ? 'bg-blue-600 text-white' : 'bg-gray-400 text-white')}`}>{isRecordingKey ? "Press any key..." : (muteKey || "Click to Bind")}</button></div></div>
-              <div className="mt-4 flex items-center gap-2"><button onClick={toggleMicTest} className={`flex-1 py-2 rounded text-sm font-bold transition-colors ${isTestingMic ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-gray-100 text-gray-900 hover:bg-gray-200'}`}>{isTestingMic ? "Stop Test" : "Check Microphone"}</button><audio ref={testAudioRef} hidden />{isTestingMic && <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse"></div>}</div></div>
-              <div className="flex justify-end gap-2"><button onClick={closeSettings} className="px-4 py-2 text-[var(--text-secondary)]">Cancel</button><button onClick={updateUserProfile} className="bg-green-600 text-white px-4 py-2 rounded font-bold">Save</button></div>
-            </div>
-          </div>
-        )}
-        {showCreateServer && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><div className="bg-white p-6 rounded-xl"><input className="border p-2 w-full mb-4" placeholder="Name" value={newServerName} onChange={e=>setNewServerName(e.target.value)}/><div className="flex justify-end gap-2"><button onClick={()=>setShowCreateServer(false)}>Cancel</button><button onClick={createServer} className="bg-green-600 text-white px-4 py-2 rounded">Create</button></div></div></div>}
-        {showCreateChannel && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><div className="bg-white p-6 rounded-xl"><input className="border p-2 w-full mb-4" placeholder="Name" value={newChannelName} onChange={e=>setNewChannelName(e.target.value)}/><div className="flex justify-end gap-2"><button onClick={()=>setShowCreateChannel(false)}>Cancel</button><button onClick={createChannel} className="bg-green-600 text-white px-4 py-2 rounded">Create</button></div></div></div>}
-        {showAddFriend && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><div className="bg-white p-6 rounded-xl"><input className="border p-2 w-full mb-4" placeholder="Username" value={friendName} onChange={e=>setFriendName(e.target.value)}/><div className="flex justify-end gap-2"><button onClick={()=>setShowAddFriend(false)}>Cancel</button><button onClick={addFriend} className="bg-green-600 text-white px-4 py-2 rounded">Send</button></div></div></div>}
-        {showInvite && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><div className="bg-white p-6 rounded-xl"><input className="border p-2 w-full mb-4" placeholder="Username" value={inviteUserName} onChange={e=>setInviteUserName(e.target.value)}/><div className="flex justify-end gap-2"><button onClick={()=>setShowInvite(false)}>Cancel</button><button onClick={inviteUser} className="bg-green-600 text-white px-4 py-2 rounded">Invite</button></div></div></div>}
-      
+        
         {/* LIGHTBOX OVERLAY */}
         {viewingImage && (
             <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setViewingImage(null)}>
@@ -858,47 +929,108 @@ export default function EcoTalkApp() {
         {/* SHOP MODAL */}
         {showShop && (
             <div className="fixed inset-0 z-[90] bg-black/80 flex items-center justify-center p-4">
-                <div className="bg-[var(--bg-primary)] w-full max-w-2xl h-[80vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden relative border border-[var(--border)]">
-                    <div className="p-6 border-b border-[var(--border)] flex justify-between items-center bg-gradient-to-r from-yellow-500/10 to-transparent">
-                        <div>
-                            <h2 className="text-2xl font-bold flex items-center"><ShoppingBag className="mr-2 text-yellow-500"/> Item Shop</h2>
-                            <p className="text-sm text-[var(--text-secondary)]">Customize your profile!</p>
-                        </div>
-                        <div className="flex items-center gap-4">
-                            <div className="bg-yellow-500/20 text-yellow-600 px-4 py-2 rounded-full font-bold flex items-center border border-yellow-500/30">
-                                <Coins size={18} className="mr-2"/> {ecoCoins}
+                <div className="bg-[var(--bg-primary)] w-full max-w-2xl h-[85vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden relative border border-[var(--border)]">
+                    <div className="p-6 border-b border-[var(--border)] bg-gradient-to-r from-yellow-500/10 to-transparent">
+                        <div className="flex justify-between items-center mb-4">
+                            <div>
+                                <h2 className="text-2xl font-bold flex items-center"><ShoppingBag className="mr-2 text-yellow-500"/> Item Shop</h2>
                             </div>
-                            <button onClick={() => setShowShop(false)} className="p-2 hover:bg-[var(--bg-tertiary)] rounded-full"><X size={24}/></button>
+                            <div className="flex items-center gap-4">
+                                <div className="bg-yellow-500/20 text-yellow-600 px-4 py-2 rounded-full font-bold flex items-center border border-yellow-500/30">
+                                    <Coins size={18} className="mr-2"/> {ecoCoins}
+                                </div>
+                                <button onClick={() => setShowShop(false)} className="p-2 hover:bg-[var(--bg-tertiary)] rounded-full"><X size={24}/></button>
+                            </div>
+                        </div>
+                        
+                        {/* SHOP TABS */}
+                        <div className="flex gap-2 overflow-x-auto pb-2">
+                            {['all', 'color', 'frame', 'bubble', 'lootbox'].map((t) => (
+                                <button 
+                                    key={t}
+                                    onClick={() => setShopTab(t as any)}
+                                    className={`px-4 py-1.5 rounded-full text-sm font-bold capitalize transition-colors ${shopTab === t ? 'bg-yellow-500 text-white' : 'bg-[var(--bg-tertiary)] hover:bg-[var(--border)]'}`}
+                                >
+                                    {t === 'lootbox' ? <span className="flex items-center"><Package size={14} className="mr-1"/> Lootbox</span> : t}
+                                </button>
+                            ))}
                         </div>
                     </div>
-                    <div className="flex-1 overflow-y-auto p-6 shop-grid">
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                            {SHOP_ITEMS.map(item => {
-                                const owned = myInventory.includes(item.id);
-                                const equipped = myCustomization[item.type as keyof typeof myCustomization] === item.id;
-                                return (
-                                    <div key={item.id} className={`border border-[var(--border)] rounded-xl p-4 flex flex-col items-center bg-[var(--bg-secondary)] hover:scale-[1.02] transition-transform ${equipped ? 'ring-2 ring-green-500' : ''}`}>
-                                        <div className="w-20 h-20 bg-gray-200 rounded-full mb-3 flex items-center justify-center relative overflow-hidden">
-                                            {item.type === 'color' && <div className="w-full h-full opacity-50" style={{ backgroundColor: item.value }}></div>}
-                                            {/* Fixed style object usage here */}
-                                            {item.type === 'frame' && <div className="absolute inset-0 rounded-full" style={item.css}></div>}
-                                            <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=shop`} className="w-16 h-16 rounded-full absolute z-10"/>
-                                        </div>
-                                        <div className="font-bold mb-1">{item.name}</div>
-                                        <div className="text-xs text-[var(--text-secondary)] mb-3 capitalize">{item.type}</div>
-                                        {owned ? (
-                                            <button onClick={() => toggleEquip(item)} className={`w-full py-2 rounded font-bold text-sm ${equipped ? 'bg-gray-200 text-gray-600' : 'bg-green-600 text-white'}`}>
-                                                {equipped ? 'Unequip' : 'Equip'}
-                                            </button>
+
+                    <div className="flex-1 overflow-y-auto p-6 shop-grid bg-[var(--bg-secondary)]">
+                        {shopTab === 'lootbox' ? (
+                            <div className="flex flex-col items-center justify-center h-full text-center">
+                                <div className={`w-40 h-40 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-3xl flex items-center justify-center shadow-[0_0_50px_rgba(234,179,8,0.4)] mb-8 transition-all ${isOpeningBox ? 'animate-shake' : 'hover:scale-105 cursor-pointer'}`} onClick={!isOpeningBox ? openLootbox : undefined}>
+                                    <Package size={80} className="text-white drop-shadow-lg"/>
+                                </div>
+                                
+                                {isOpeningBox ? (
+                                    <div className="text-2xl font-bold animate-pulse text-yellow-500">Opening...</div>
+                                ) : (
+                                    <>
+                                        {lootResult ? (
+                                            <div className="mb-4 animate-in zoom-in duration-300">
+                                                <div className="text-sm text-gray-500 uppercase tracking-widest font-bold mb-2">You Unlocked</div>
+                                                <div className="text-3xl font-bold mb-1" style={{ color: RARITY_COLORS[lootResult.rarity as Rarity] }}>{lootResult.name}</div>
+                                                <div className="inline-block px-3 py-1 rounded text-xs font-bold text-white uppercase" style={{ backgroundColor: RARITY_COLORS[lootResult.rarity as Rarity] }}>{lootResult.rarity}</div>
+                                            </div>
                                         ) : (
-                                            <button onClick={() => buyItem(item)} className="w-full py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded font-bold text-sm flex items-center justify-center">
-                                                <Coins size={14} className="mr-1"/> {item.price}
-                                            </button>
+                                            <>
+                                                <h3 className="text-2xl font-bold mb-2">Mystery Box</h3>
+                                                <p className="text-[var(--text-secondary)] mb-6 max-w-sm mx-auto">Contains a random item from Common to Legendary rarity. Try your luck!</p>
+                                            </>
                                         )}
-                                    </div>
-                                )
-                            })}
-                        </div>
+                                        
+                                        <button 
+                                            onClick={openLootbox} 
+                                            disabled={ecoCoins < 100}
+                                            className={`px-8 py-3 rounded-xl font-bold text-lg flex items-center justify-center mx-auto transition-transform active:scale-95 ${ecoCoins >= 100 ? 'bg-yellow-500 text-white hover:bg-yellow-600 shadow-lg shadow-yellow-500/30' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}
+                                        >
+                                            <Coins size={20} className="mr-2"/> 100
+                                        </button>
+                                    </>
+                                )}
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                {SHOP_ITEMS.filter(i => shopTab === 'all' || i.type === shopTab).map(item => {
+                                    const owned = myInventory.includes(item.id);
+                                    const equipped = myCustomization[item.type as keyof typeof myCustomization] === item.id;
+                                    const rarityColor = RARITY_COLORS[item.rarity as Rarity];
+                                    
+                                    return (
+                                        <div key={item.id} className={`border-2 rounded-xl p-4 flex flex-col items-center bg-[var(--bg-primary)] hover:scale-[1.02] transition-transform relative overflow-hidden ${equipped ? 'ring-2 ring-green-500 border-green-500' : 'border-[var(--border)]'}`}>
+                                            
+                                            {/* Rarity Tag */}
+                                            <div className="absolute top-2 right-2 px-1.5 py-0.5 rounded text-[10px] font-bold text-white uppercase" style={{ backgroundColor: rarityColor }}>
+                                                {item.rarity}
+                                            </div>
+
+                                            <div className="w-20 h-20 bg-[var(--bg-tertiary)] rounded-full mb-3 flex items-center justify-center relative overflow-hidden group">
+                                                {item.type === 'color' && <div className="w-full h-full opacity-50" style={{ backgroundColor: item.value }}></div>}
+                                                {item.type === 'frame' && <div className="absolute inset-0 rounded-full" style={item.css}></div>}
+                                                {item.type === 'bubble' && <div className="w-16 h-8 rounded-lg text-[10px] flex items-center justify-center" style={item.css}>Preview</div>}
+                                                {(item.type === 'color' || item.type === 'frame') && <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=shop`} className="w-16 h-16 rounded-full absolute z-10"/>}
+                                            </div>
+                                            
+                                            <div className="font-bold mb-1 text-center leading-tight">{item.name}</div>
+                                            
+                                            <div className="mt-auto w-full pt-3">
+                                                {owned ? (
+                                                    <button onClick={() => toggleEquip(item)} className={`w-full py-2 rounded-lg font-bold text-sm transition-colors ${equipped ? 'bg-gray-200 text-gray-600' : 'bg-green-600 text-white'}`}>
+                                                        {equipped ? 'Unequip' : 'Equip'}
+                                                    </button>
+                                                ) : (
+                                                    <button onClick={() => buyItem(item)} className="w-full py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg font-bold text-sm flex items-center justify-center transition-colors">
+                                                        <Coins size={14} className="mr-1"/> {item.price}
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
@@ -907,15 +1039,18 @@ export default function EcoTalkApp() {
         {/* DAILY BONUS MODAL */}
         {showDailyModal && (
             <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4">
-                <div className="bg-white p-8 rounded-2xl text-center max-w-sm w-full animate-in zoom-in duration-300">
-                    <div className="w-20 h-20 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4 text-yellow-500">
-                        <Gift size={40}/>
+                <div className="bg-white p-8 rounded-2xl text-center max-w-sm w-full animate-in zoom-in duration-300 relative overflow-hidden">
+                    <div className="absolute inset-0 bg-yellow-400/10 z-0"></div>
+                    <div className="relative z-10">
+                        <div className="w-24 h-24 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4 text-yellow-500 shadow-xl shadow-yellow-500/20">
+                            <Gift size={48}/>
+                        </div>
+                        <h2 className="text-3xl font-black text-gray-900 mb-2">Daily Bonus!</h2>
+                        <p className="text-gray-600 mb-8 font-medium">You've earned 100 EcoCoins for logging in today.</p>
+                        <button onClick={claimDailyBonus} className="w-full py-4 bg-green-600 text-white font-bold rounded-xl text-xl hover:scale-105 transition-transform shadow-lg shadow-green-600/30">
+                            Claim +100 Coins
+                        </button>
                     </div>
-                    <h2 className="text-2xl font-bold text-gray-900 mb-2">Daily Bonus!</h2>
-                    <p className="text-gray-600 mb-6">You've earned 100 EcoCoins for logging in today.</p>
-                    <button onClick={claimDailyBonus} className="w-full py-3 bg-green-600 text-white font-bold rounded-xl text-lg hover:scale-105 transition-transform">
-                        Claim +100 Coins
-                    </button>
                 </div>
             </div>
         )}
