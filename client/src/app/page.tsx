@@ -9,13 +9,19 @@ import {
 import io, { Socket } from "socket.io-client";
 import Peer from "simple-peer";
 
-// ===== CONSTANTS & SOUNDS =====
+// ===== CONSTANTS & SOUNDS (UPDATED) =====
 const SOCKET_URL = "http://5.129.215.82:3001";
+
+// Используем надежные ссылки Google CDN, которые не блокируются
 const SFX = {
-  msg: "https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.m4a", // Сообщение
-  join: "https://assets.mixkit.co/active_storage/sfx/2578/2578-preview.m4a", // Вход
-  leave: "https://assets.mixkit.co/active_storage/sfx/2572/2572-preview.m4a", // Выход
-  click: "https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.m4a", // Клик
+  // Звук сообщения (легкий "поп")
+  msg: "https://codeskulptor-demos.commondatastorage.googleapis.com/pang/pop.mp3", 
+  // Звук входа (технологичный писк)
+  join: "https://codeskulptor-demos.commondatastorage.googleapis.com/GalaxyInvaders/bonus.mp3", 
+  // Звук выхода (низкий тон)
+  leave: "https://codeskulptor-demos.commondatastorage.googleapis.com/GalaxyInvaders/player_shoot.mp3", 
+  // Клик (щелчок)
+  click: "https://codeskulptor-demos.commondatastorage.googleapis.com/galaxy/pixel.mp3", 
 };
 
 // ===== THEMES =====
@@ -30,9 +36,19 @@ let _socket: Socket | null = null;
 function getSocket() { if (!_socket) { _socket = io(SOCKET_URL, { transports: ["websocket"], withCredentials: true }); } return _socket; }
 const peerConfig = { iceServers: [ { urls: "stun:stun.l.google.com:19302" }, { urls: "stun:global.stun.twilio.com:3478" } ] };
 
-// --- SOUND PLAY FUNCTION ---
+// --- SOUND PLAY FUNCTION (DEBUGGED) ---
 const playSfx = (type: keyof typeof SFX) => {
-  try { const audio = new Audio(SFX[type]); audio.volume = 0.5; audio.play().catch(() => {}); } catch (e) {}
+  try { 
+    const audio = new Audio(SFX[type]); 
+    audio.volume = 0.5; 
+    // Добавляем обработку ошибок, чтобы видеть их в консоли
+    const playPromise = audio.play();
+    if (playPromise !== undefined) {
+      playPromise.catch((error) => {
+        console.warn("Sound blocked or failed:", error);
+      });
+    }
+  } catch (e) { console.error("Audio setup error", e); }
 };
 
 // --- AUDIO HELPERS ---
