@@ -107,8 +107,6 @@ const useProcessedStream = (rawStream: MediaStream | null, threshold: number, is
     const [processedStream, setProcessedStream] = useState<MediaStream | null>(null);
     useEffect(() => {
         if (!rawStream) return;
-        
-        // If screen sharing (video present), bypass gate
         if (rawStream.getVideoTracks().length > 0) { setProcessedStream(rawStream); return; }
         if (rawStream.getAudioTracks().length === 0) { setProcessedStream(rawStream); return; }
 
@@ -131,7 +129,6 @@ const useProcessedStream = (rawStream: MediaStream | null, threshold: number, is
             const data = new Uint8Array(analyser.frequencyBinCount);
             analyser.getByteFrequencyData(data);
             let sum = 0; for (let i = 0; i < data.length; i++) sum += data[i];
-            // Threshold Logic
             if ((sum / data.length) > threshold) { gainNode.gain.setTargetAtTime(1, ctx.currentTime, 0.05); } 
             else { gainNode.gain.setTargetAtTime(0, ctx.currentTime, 0.2); }
         };
@@ -201,17 +198,16 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
 });
 UserMediaComponent.displayName = "UserMediaComponent";
 
-// === CORRECTED PEER WRAPPER ===
-const GroupPeerWrapper = React.memo(({ peer, peerID, outputDeviceId, allUsers, fallbackName }: { peer: Peer.Instance; peerID: string; outputDeviceId?: string; allUsers: any[]; fallbackName?: string }) => {
+// === FIX: REMOVED REACT.MEMO TO FORCE RE-RENDERS WHEN USER LIST UPDATES ===
+const GroupPeerWrapper = ({ peer, peerID, outputDeviceId, allUsers }: { peer: Peer.Instance; peerID: string; outputDeviceId?: string; allUsers: any[]; }) => {
   const [stream, setStream] = useState<MediaStream | null>(null);
   useEffect(() => { const onStream = (s: MediaStream) => setStream(s); peer.on("stream", onStream); if ((peer as any)._remoteStreams?.length) setStream((peer as any)._remoteStreams[0]); return () => { peer.off("stream", onStream); }; }, [peer]);
   
-  // LOOKUP: Try to find user in voice list, if not, use fallback (friend list/member list)
+  // Find User Data (Reactive)
   const u = allUsers.find((x: any) => x.socketId === peerID);
   
-  return <UserMediaComponent stream={stream} isLocal={false} userId={peerID} userAvatar={u?.avatar} username={u?.username || fallbackName || "Connecting..."} outputDeviceId={outputDeviceId} isScreenShare={false}/>;
-});
-GroupPeerWrapper.displayName = "GroupPeerWrapper";
+  return <UserMediaComponent stream={stream} isLocal={false} userId={peerID} userAvatar={u?.avatar} username={u?.username || "Connecting..."} outputDeviceId={outputDeviceId} isScreenShare={false}/>;
+};
 
 // ============================ APP ============================
 export default function EcoTalkApp() {
@@ -265,15 +261,11 @@ export default function EcoTalkApp() {
   const [audioOutputs, setAudioOutputs] = useState<MediaDeviceInfo[]>([]);
   const [selectedMicId, setSelectedMicId] = useState<string>("");
   const [selectedSpeakerId, setSelectedSpeakerId] = useState<string>("");
-  
-  // === ADVANCED AUDIO SETTINGS ===
   const [enableNoiseSuppression, setEnableNoiseSuppression] = useState(true);
   const [voiceThreshold, setVoiceThreshold] = useState(10); 
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [isTestingMic, setIsTestingMic] = useState(false);
   const testAudioRef = useRef<HTMLAudioElement>(null);
-  
-  // VOICE STATE
   const [activeVoiceChannel, setActiveVoiceChannel] = useState<number | null>(null); 
   const [myStream, setMyStream] = useState<MediaStream | null>(null);
   const [peers, setPeers] = useState<{ peerID: string; peer: Peer.Instance }[]>([]);
@@ -281,7 +273,6 @@ export default function EcoTalkApp() {
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOn, setIsVideoOn] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
-  
   const processedStream = useProcessedStream(myStream, voiceThreshold, isMuted);
   const [muteKey, setMuteKey] = useState<string | null>(null);
   const [isRecordingKey, setIsRecordingKey] = useState(false);
@@ -313,7 +304,10 @@ export default function EcoTalkApp() {
     const savedKey = localStorage.getItem("eco_mute_key"); if(savedKey) setMuteKey(savedKey);
     const savedThreshold = localStorage.getItem("eco_voice_threshold"); if(savedThreshold) setVoiceThreshold(Number(savedThreshold));
     if (typeof navigator !== 'undefined' && navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) { navigator.mediaDevices.enumerateDevices().then((d) => { setAudioInputs(d.filter((x) => x.kind === "audioinput")); setAudioOutputs(d.filter((x) => x.kind === "audiooutput")); }).catch(() => {}); }
+    
+    // FIX: Force update on mount
     socket.emit("request_voice_states");
+    
     const unlock = () => { try { const ctx = getAudioContext(); if (ctx && ctx.state === "suspended") ctx.resume(); } catch (e) { console.log(e); } document.removeEventListener("click", unlock); };
     document.addEventListener("click", unlock); return () => { document.removeEventListener("click", unlock); };
   }, []);
@@ -327,8 +321,17 @@ export default function EcoTalkApp() {
     const onFriendAdded = (f: any) => { setMyFriends((p) => (p.find((x) => x.id === f.id) ? p : [...p, f])); if (tokenRef.current) fetchUserData(tokenRef.current); };
     const onFriendRemoved = (id: number) => { setMyFriends((p) => p.filter((f) => f.id !== id)); setActiveDM((prev: any) => (prev?.id === id ? null : prev)); };
     const onUserStatus = ({ userId, status, lastSeen }: any) => { setMyFriends((p) => p.map((f) => (f.id === userId ? { ...f, status, lastSeen } : f))); setCurrentServerMembers((p) => p.map((m) => (m.id === userId ? { ...m, status, lastSeen } : m))); };
-    // FIX: Ensure key is number for channel ID lookup
-    const onVoiceUpdate = ({ roomId, users }: any) => { setVoiceStates((prev) => { const key = Number(roomId); if (JSON.stringify(prev[key]) === JSON.stringify(users)) return prev; return { ...prev, [key]: users }; }); };
+    
+    // FIX: Ensure key is always number to match sidebar rendering
+    const onVoiceUpdate = ({ roomId, users }: any) => { 
+        setVoiceStates((prev) => { 
+            const key = Number(roomId); 
+            // Avoid unnecessary re-renders
+            if (JSON.stringify(prev[key]) === JSON.stringify(users)) return prev; 
+            return { ...prev, [key]: users }; 
+        }); 
+    };
+    
     const onMsgUpdated = (u: any) => setMessages((p) => p.map((m) => (m.id === u.id ? u : m)));
     const onMsgDeleted = (id: number) => setMessages((p) => p.filter((m) => m.id !== id));
     const onTyping = (id: number | null | undefined) => { const me = currentUserRef.current?.id; if (!id || id === me) return; setTypingUsers((p) => Array.from(new Set([...p, id]))); };
@@ -344,6 +347,10 @@ export default function EcoTalkApp() {
     if (!activeVoiceChannel || !myStream || !processedStream) return;
     const streamToSend = processedStream;
     peersRef.current = []; setPeers([]);
+    
+    // Request fresh list when joining
+    socket.emit("request_voice_states");
+
     const handleAllUsers = (users: string[]) => { const fresh: { peerID: string; peer: Peer.Instance }[] = []; users.forEach((userID: string) => { if (userID === socket.id) return; if (peersRef.current.find((x) => x.peerID === userID)) return; const peer = createPeer(userID, socket.id!, streamToSend, socket); peersRef.current.push({ peerID: userID, peer }); fresh.push({ peerID: userID, peer }); }); if (fresh.length) setPeers((prev) => [...prev, ...fresh]); };
     const handleUserJoined = (pl: any) => { if (!pl?.callerID || pl.callerID === socket.id || peersRef.current.find((x) => x.peerID === pl.callerID)) return; const peer = addPeer(pl.signal, pl.callerID, streamToSend, socket); peersRef.current.push({ peerID: pl.callerID, peer }); setPeers((prev) => [...prev, { peerID: pl.callerID, peer }]); playSound("join"); }; 
     const handleReturned = (pl: any) => { const item = peersRef.current.find((p) => p.peerID === pl.id); if (item && !item.peer.destroyed) item.peer.signal(pl.signal); };
@@ -380,8 +387,34 @@ export default function EcoTalkApp() {
   const handleNotification = async (id: number, action: "ACCEPT" | "DECLINE") => { if (!token) return; if (action === "ACCEPT") { const notif = notifications.find((n) => n.id === id); if (notif?.type === "FRIEND_REQUEST" && notif.sender) { setMyFriends((prev) => (prev.find((x) => x.id === notif.sender.id) ? prev : [...prev, notif.sender])); } } setNotifications((prev) => prev.filter((n) => n.id !== id)); await fetch(`${SOCKET_URL}/api/notifications/respond`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: token }, body: JSON.stringify({ notificationId: id, action }), }); if (action === "ACCEPT") fetchUserData(token); playSound("click"); };
   const addFriend = async () => { if (!token) return; const res = await fetch(`${SOCKET_URL}/api/friends/invite`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: token }, body: JSON.stringify({ username: friendName }), }); if (res.ok) { setFriendName(""); setShowAddFriend(false); alert("Sent!"); } else alert("Error"); };
   const inviteUser = async () => { if (!token || !activeServerId) return; const res = await fetch(`${SOCKET_URL}/api/servers/invite`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: token }, body: JSON.stringify({ serverId: activeServerId, username: inviteUserName }), }); if (res.ok) { alert("Sent!"); setInviteUserName(""); setShowInvite(false); } else { const data = await res.json(); alert(data.error); } };
-  const selectServer = async (serverId: number) => { if (!token) return; setActiveServerId(serverId); setActiveDM(null); if (activeVoiceChannel) leaveVoiceChannel(); const res = await fetch(`${SOCKET_URL}/api/server/${serverId}`, { headers: { Authorization: token } }); const data = await res.json(); setActiveServerData(data); setCurrentServerMembers(data.members.map((m: any) => m.user)); setMyServers((p) => p.map((s) => (s.id === serverId ? data : s))); const firstText = data.channels.find((c: any) => c.type === 'text'); if (firstText) selectChannel(firstText); else if (data.channels.length > 0) selectChannel(data.channels[0]); playSound("click"); };
-  const selectChannel = (c: any) => { if (activeVoiceChannel === c.id) { setActiveChannel(c); return; } if (c.type === 'voice') { if (activeVoiceChannel && activeVoiceChannel !== c.id) leaveVoiceChannel(); setActiveChannel(c); setActiveVoiceChannel(c.id); playSound("join"); navigator.mediaDevices.getUserMedia(getMediaConstraints(false)).then((s) => { setMyStream(s); setIsMuted(false); setIsVideoOn(false); setIsScreenSharing(false); }).catch((e) => { console.error(e); alert("Mic Error"); setActiveVoiceChannel(null); }); } else { setActiveChannel(c); setMessages([]); socket.emit("join_channel", { channelId: c.id }); playSound("click"); } };
+  const selectServer = async (serverId: number) => { 
+      if (!token) return; 
+      setActiveServerId(serverId); setActiveDM(null); 
+      if (activeVoiceChannel) leaveVoiceChannel(); 
+      const res = await fetch(`${SOCKET_URL}/api/server/${serverId}`, { headers: { Authorization: token } }); 
+      const data = await res.json(); 
+      setActiveServerData(data); 
+      setCurrentServerMembers(data.members.map((m: any) => m.user)); 
+      setMyServers((p) => p.map((s) => (s.id === serverId ? data : s))); 
+      
+      const firstText = data.channels.find((c: any) => c.type === 'text');
+      if (firstText) selectChannel(firstText);
+      else if (data.channels.length > 0) selectChannel(data.channels[0]);
+      
+      playSound("click"); 
+  };
+
+  const selectChannel = (c: any) => {
+    if (activeVoiceChannel === c.id) { setActiveChannel(c); return; }
+    if (c.type === 'voice') {
+        if (activeVoiceChannel && activeVoiceChannel !== c.id) leaveVoiceChannel();
+        setActiveChannel(c); setActiveVoiceChannel(c.id); playSound("join");
+        navigator.mediaDevices.getUserMedia(getMediaConstraints(false)).then((s) => { setMyStream(s); setIsMuted(false); setIsVideoOn(false); setIsScreenSharing(false); }).catch((e) => { console.error(e); alert("Mic Error"); setActiveVoiceChannel(null); });
+    } else {
+        setActiveChannel(c); setMessages([]); socket.emit("join_channel", { channelId: c.id }); playSound("click"); 
+    }
+  };
+
   const toggleVideo = async () => { if (!activeVoiceChannel) return; playSound("click"); if (isVideoOn || isScreenSharing) { const stream = await navigator.mediaDevices.getUserMedia(getMediaConstraints(false)); if (myStream) myStream.getTracks().forEach(t => t.stop()); setMyStream(stream); setIsVideoOn(false); setIsScreenSharing(false); } else { try { const stream = await navigator.mediaDevices.getUserMedia(getMediaConstraints(true)); if (myStream) myStream.getTracks().forEach(t => t.stop()); setMyStream(stream); setIsVideoOn(true); setIsScreenSharing(false); } catch (e) { console.error(e); alert("Could not start video"); } } };
   
   const toggleScreenShare = async () => { 
@@ -459,7 +492,8 @@ export default function EcoTalkApp() {
                           <div className="flex items-center"><Volume2 size={16} className="mr-1"/> {c.name}</div>
                           {activeServerData?.ownerId === currentUser.id && <Settings size={12} className="opacity-0 group-hover:opacity-100 hover:text-[var(--accent)]" onClick={(e)=>openChannelSettings(e, c)}/>}
                       </div>
-                      {voiceStates[c.id]?.map((u: any) => <div key={u.socketId} className="pl-6 flex items-center text-[var(--text-secondary)] text-xs py-1"><img src={u.avatar} className="w-4 h-4 rounded-full mr-2"/>{u.username}</div>)}
+                      {/* FIX: Ensure we use number key for voice states lookup */}
+                      {voiceStates[Number(c.id)]?.map((u: any) => <div key={u.socketId} className="pl-6 flex items-center text-[var(--text-secondary)] text-xs py-1"><img src={u.avatar} className="w-4 h-4 rounded-full mr-2"/>{u.username}</div>)}
                    </div>
                 ))}
               </>
