@@ -1,11 +1,11 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Hash, Send, Plus, MessageSquare, LogOut, Paperclip, UserPlus, PhoneOff, Bell,
   Check, X, Settings, Trash2, UserMinus, Users, Volume2, Mic, MicOff, Smile, Edit2,
   Palette, Zap, ZapOff, Video, VideoOff, Monitor, MonitorOff, Volume1, VolumeX, Camera,
-  Maximize, Minimize, Keyboard, Sliders, Volume, Headphones, HeadphoneOff, UploadCloud, WifiOff
+  Maximize, Minimize, Keyboard, Sliders, Volume, Headphones, HeadphoneOff
 } from "lucide-react";
 import io, { Socket } from "socket.io-client";
 import Peer from "simple-peer";
@@ -116,7 +116,6 @@ const useProcessedStream = (rawStream: MediaStream | null, threshold: number, is
         if (gainNodeRef.current) {
             const ctx = gainNodeRef.current.context;
             gainNodeRef.current.gain.cancelScheduledValues(ctx.currentTime);
-            // Software Mute Logic
             gainNodeRef.current.gain.setValueAtTime(isMuted ? 0 : 1, ctx.currentTime);
         }
     }, [isMuted]);
@@ -181,6 +180,8 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
     if(!stream) { setHasVideo(false); return; }
     const checkStatus = () => {
         setHasVideo(stream.getVideoTracks().length > 0 && stream.getVideoTracks()[0].enabled);
+        const audioTrack = stream.getAudioTracks()[0];
+        setIsAudioEnabled(audioTrack ? audioTrack.enabled : false);
     };
     const statusInterval = setInterval(checkStatus, 500);
     checkStatus();
@@ -393,6 +394,33 @@ export default function EcoTalkApp() {
     }
   }, [isMuted, processedStream]);
 
+  // === PASTE EVENT HANDLER ===
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+       const items = e.clipboardData.items;
+       for (let i = 0; i < items.length; i++) {
+           if (items[i].type.indexOf("image") !== -1) {
+               e.preventDefault(); 
+               const file = items[i].getAsFile();
+               if (file) {
+                   const reader = new FileReader();
+                   reader.onloadend = () => {
+                       socket.emit("send_message", {
+                           content: null,
+                           imageUrl: reader.result,
+                           type: "image",
+                           author: currentUser.username,
+                           userId: currentUser.id,
+                           channelId: activeServerId ? activeChannel?.id : null,
+                           dmRoom: activeDM ? `dm_${[currentUser.id, activeDM.id].sort().join("_")}` : null,
+                       });
+                   };
+                   reader.readAsDataURL(file);
+                   return; 
+               }
+           }
+       }
+   };
+
   useEffect(() => {
       const handleKeyDown = (e: KeyboardEvent) => {
           if (isRecordingKey) { e.preventDefault(); setMuteKey(e.code); localStorage.setItem("eco_mute_key", e.code); setIsRecordingKey(false); playSound("click"); } 
@@ -568,26 +596,6 @@ export default function EcoTalkApp() {
       if (newState) setIsMuted(true);
   };
 
-  // === DRAG & DROP HANDLERS ===
-  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); };
-  const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(false); };
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault(); setIsDragging(false);
-    const file = e.dataTransfer.files[0];
-    if (file) {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            socket.emit("send_message", { 
-                content: null, imageUrl: reader.result, type: "image", 
-                author: currentUser.username, userId: currentUser.id, 
-                channelId: activeServerId ? activeChannel?.id : null, 
-                dmRoom: activeDM ? `dm_${[currentUser.id, activeDM.id].sort().join("_")}` : null 
-            });
-        };
-        reader.readAsDataURL(file);
-    }
-  };
-
   const selectDM = (friend: any) => { if (friend.id === currentUser?.id) return; setActiveServerId(null); if (activeVoiceChannel) leaveVoiceChannel(); setActiveDM(friend); setActiveChannel(null); setMessages([]); const me = currentUser; if (!me) return; const ids = [me.id, friend.id].sort(); socket.emit("join_dm", { roomName: `dm_${ids[0]}_${ids[1]}` }); playSound("click"); };
   const sendMessage = () => { const me = currentUser; if (!me || !inputText) return; socket.emit("send_message", { content: inputText, author: me.username, userId: me.id, channelId: activeServerId ? activeChannel?.id : null, dmRoom: activeDM ? `dm_${[me.id, activeDM.id].sort().join("_")}` : null, }); setInputText(""); const room = activeServerId ? `channel_${activeChannel?.id}` : activeDM ? `dm_${[me.id, activeDM.id].sort().join("_")}` : null; if (room) socket.emit("stop_typing", { room }); };
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onloadend = () => socket.emit("send_message", { content: null, imageUrl: reader.result, type: "image", author: currentUser.username, userId: currentUser.id, channelId: activeServerId ? activeChannel?.id : null, dmRoom: activeDM ? `dm_${[currentUser.id, activeDM.id].sort().join("_")}` : null, }); reader.readAsDataURL(file); };
@@ -732,7 +740,7 @@ export default function EcoTalkApp() {
                 })}
                 {typingUsers.length > 0 && <div className="text-xs text-[var(--text-secondary)] font-bold px-4 animate-pulse">Someone is typing...</div>}
              </div>
-             <div className="p-4"><div className="border border-[var(--border)] rounded-lg flex items-center p-2 bg-[var(--bg-tertiary)]"><input type="file" ref={fileInputRef} hidden onChange={handleFile}/><Paperclip size={20} className="text-[var(--text-secondary)] cursor-pointer mr-2" onClick={()=>fileInputRef.current?.click()}/><input className="flex-1 outline-none bg-transparent text-[var(--text-primary)]" placeholder="Message..." value={inputText} onChange={handleTyping} onKeyDown={e=>e.key==='Enter'&&sendMessage()}/><Send size={20} className="cursor-pointer text-[var(--text-secondary)]" onClick={sendMessage}/></div></div>
+             <div className="p-4"><div className="border border-[var(--border)] rounded-lg flex items-center p-2 bg-[var(--bg-tertiary)]"><input type="file" ref={fileInputRef} hidden onChange={handleFile} /><input type="text" className="flex-1 outline-none bg-transparent text-[var(--text-primary)]" placeholder="Message..." value={inputText} onChange={handleTyping} onKeyDown={e=>e.key==='Enter'&&sendMessage()} onPaste={handlePaste} /><Paperclip size={20} className="text-[var(--text-secondary)] cursor-pointer mr-2" onClick={()=>fileInputRef.current?.click()}/><Send size={20} className="cursor-pointer text-[var(--text-secondary)]" onClick={sendMessage}/></div></div>
              
              {/* PIP (PICTURE IN PICTURE) MODE */}
              {!isVoiceActiveView && activeVoiceChannel && (
