@@ -345,9 +345,10 @@ export default function EcoTalkApp() {
   const lastTypingTime = useRef<number>(0);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // === DND & CONNECTION STATUS ===
+  // === DND & CONNECTION & LIGHTBOX STATUS ===
   const [isDragging, setIsDragging] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
+  const [viewingImage, setViewingImage] = useState<string | null>(null); // State for lightbox
 
   useEffect(() => { const savedTheme = localStorage.getItem("eco_theme"); if (savedTheme) { setTheme(savedTheme); document.documentElement.setAttribute('data-theme', savedTheme); } }, []);
   const playSound = (type: 'msg' | 'join' | 'leave' | 'click') => { if (soundEnabled) playSoundEffect(type); };
@@ -370,6 +371,17 @@ export default function EcoTalkApp() {
         window.removeEventListener('online', handleOnline);
     };
   }, [socket]);
+
+  // === LIGHTBOX ESC KEY ===
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+        if (e.key === 'Escape' && viewingImage) {
+            setViewingImage(null);
+        }
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [viewingImage]);
 
   // === BROADCAST MUTE STATE VIA DATA CHANNEL ===
   const broadcastMuteState = (muted: boolean) => {
@@ -709,6 +721,7 @@ export default function EcoTalkApp() {
           <div className="p-2 border-t border-[var(--border)] flex items-center bg-[var(--bg-tertiary)]"><img src={currentUser?.avatar} className="w-8 h-8 rounded-full mr-2"/><div className="font-bold text-sm">{currentUser?.username}</div><Settings size={16} className="ml-auto mr-2 cursor-pointer text-[var(--text-secondary)] hover:text-[var(--text-primary)]" onClick={openUserProfile}/><LogOut size={16} className="cursor-pointer text-red-500" onClick={handleLogout}/></div>
         </div>
 
+        {/* MAIN AREA */}
         <div className="flex-1 flex flex-col bg-[var(--bg-primary)] min-w-0 relative transition-colors">
           <div className="h-12 border-b border-[var(--border)] flex items-center justify-between px-4 shadow-sm"><div className="font-bold text-[var(--text-primary)] flex items-center">{activeServerId ? (<>{activeChannel?.type === 'voice' ? <Volume2 className="mr-2"/> : <Hash className="mr-2"/>} {activeChannel?.name}</>) : (<><div className="flex flex-col"><span>{activeDM?.username || 'Select Friend'}</span>{activeDM && (<span className={`text-[10px] font-normal ${activeFriendData?.status==='online'?'text-green-600':'text-gray-400'}`}>{activeFriendData?.status==='online'?'Online':`Last seen: ${formatLastSeen(activeFriendData?.lastSeen)}`}</span>)}</div></>)}</div><div className="flex items-center space-x-4">{activeServerId && <Users className={`cursor-pointer ${showMembersPanel ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'}`} onClick={()=>setShowMembersPanel(!showMembersPanel)}/>}</div></div>
           
@@ -738,7 +751,13 @@ export default function EcoTalkApp() {
                                  ) : (
                                     <div className="text-[var(--text-primary)] text-sm whitespace-pre-wrap">{m.content}</div>
                                  )}
-                                 {m.imageUrl && <img src={m.imageUrl} className="mt-2 rounded-lg max-w-sm"/>}
+                                 {m.imageUrl && (
+                                    <img 
+                                      src={m.imageUrl} 
+                                      className="mt-2 rounded-lg max-w-sm cursor-zoom-in hover:opacity-90 transition-opacity"
+                                      onClick={() => setViewingImage(m.imageUrl)}
+                                    />
+                                 )}
                                  <div className="flex flex-wrap gap-1 mt-1">{m.reactions?.map((r:any) => (<div key={r.id} className="bg-[var(--bg-tertiary)] px-1.5 py-0.5 rounded text-[10px] border border-[var(--border)] text-[var(--text-secondary)]" title={r.user.username}>{r.emoji}</div>))}</div>
                               </div>
                            </div>
@@ -807,6 +826,20 @@ export default function EcoTalkApp() {
         {showCreateChannel && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><div className="bg-white p-6 rounded-xl"><input className="border p-2 w-full mb-4" placeholder="Name" value={newChannelName} onChange={e=>setNewChannelName(e.target.value)}/><div className="flex justify-end gap-2"><button onClick={()=>setShowCreateChannel(false)}>Cancel</button><button onClick={createChannel} className="bg-green-600 text-white px-4 py-2 rounded">Create</button></div></div></div>}
         {showAddFriend && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><div className="bg-white p-6 rounded-xl"><input className="border p-2 w-full mb-4" placeholder="Username" value={friendName} onChange={e=>setFriendName(e.target.value)}/><div className="flex justify-end gap-2"><button onClick={()=>setShowAddFriend(false)}>Cancel</button><button onClick={addFriend} className="bg-green-600 text-white px-4 py-2 rounded">Send</button></div></div></div>}
         {showInvite && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><div className="bg-white p-6 rounded-xl"><input className="border p-2 w-full mb-4" placeholder="Username" value={inviteUserName} onChange={e=>setInviteUserName(e.target.value)}/><div className="flex justify-end gap-2"><button onClick={()=>setShowInvite(false)}>Cancel</button><button onClick={inviteUser} className="bg-green-600 text-white px-4 py-2 rounded">Invite</button></div></div></div>}
+      
+        {/* LIGHTBOX OVERLAY */}
+        {viewingImage && (
+            <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setViewingImage(null)}>
+                <button className="absolute top-4 right-4 text-white/50 hover:text-white p-2 rounded-full hover:bg-white/10 transition-all" onClick={() => setViewingImage(null)}>
+                    <X size={32}/>
+                </button>
+                <img 
+                    src={viewingImage} 
+                    className="max-w-full max-h-full rounded-md shadow-2xl object-contain cursor-zoom-out"
+                    onClick={(e) => e.stopPropagation()} 
+                />
+            </div>
+        )}
       </div>
     </div>
   );
