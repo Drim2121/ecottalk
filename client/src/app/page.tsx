@@ -102,127 +102,86 @@ const useStreamAnalyzer = (stream: MediaStream | null) => {
     return isTalking;
 };
 
-// === ULTRA-STABLE PRO VOICE HOOK ===
+// === PRO VOICE PROCESSING HOOK ===
 const useProcessedStream = (rawStream: MediaStream | null, threshold: number, isMuted: boolean) => {
     const [processedStream, setProcessedStream] = useState<MediaStream | null>(null);
-    const contextRef = useRef<{ 
-        ctx: AudioContext; 
-        source: MediaStreamAudioSourceNode | null; 
-        destination: MediaStreamAudioDestinationNode; 
-        gainNode: GainNode; 
-        analyser: AnalyserNode 
-    } | null>(null);
-    
-    // Refs for real-time access inside interval
+    const gainNodeRef = useRef<GainNode | null>(null);
     const isMutedRef = useRef(isMuted);
     const thresholdRef = useRef(threshold);
 
     useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
     useEffect(() => { thresholdRef.current = threshold; }, [threshold]);
 
-    // 1. Initialize Audio Engine ONCE
     useEffect(() => {
+        if (gainNodeRef.current) {
+            const ctx = gainNodeRef.current.context;
+            gainNodeRef.current.gain.cancelScheduledValues(ctx.currentTime);
+            // Software Mute Logic
+            gainNodeRef.current.gain.setValueAtTime(isMuted ? 0 : 1, ctx.currentTime);
+        }
+    }, [isMuted]);
+
+    useEffect(() => {
+        if (!rawStream) return;
+        if (rawStream.getVideoTracks().length > 0 || rawStream.getAudioTracks().length === 0) { setProcessedStream(rawStream); return; }
+
         const ctx = getAudioContext();
         if (!ctx) return;
 
+        const source = ctx.createMediaStreamSource(rawStream);
         const destination = ctx.createMediaStreamDestination();
         const gainNode = ctx.createGain();
         const analyser = ctx.createAnalyser();
         analyser.fftSize = 512;
 
-        // Connect Chain: Gain -> Destination (Source will be plugged into Gain later)
+        source.connect(analyser);
+        analyser.connect(gainNode);
         gainNode.connect(destination);
         
-        // Save to Ref
-        contextRef.current = { ctx, source: null, destination, gainNode, analyser };
-        
-        // Start Processing Loop
-        const interval = setInterval(() => {
-            if (!contextRef.current) return;
-            const { gainNode, analyser, ctx } = contextRef.current;
-            
-            // If physically muted, force silence
-            if (isMutedRef.current) {
-                gainNode.gain.setTargetAtTime(0, ctx.currentTime, 0.01);
-                return;
-            }
+        gainNodeRef.current = gainNode;
 
-            // Noise Gate Logic
+        let interval: any;
+        const processAudio = () => {
+            if (gainNodeRef.current?.gain.value === 0 && isMutedRef.current) return;
+
             const data = new Uint8Array(analyser.frequencyBinCount);
             analyser.getByteFrequencyData(data);
             let sum = 0; for (let i = 0; i < data.length; i++) sum += data[i];
             
-            if ((sum / data.length) > thresholdRef.current) {
-                gainNode.gain.setTargetAtTime(1, ctx.currentTime, 0.05); // Open
-            } else {
-                gainNode.gain.setTargetAtTime(0, ctx.currentTime, 0.2); // Close
+            if (!isMutedRef.current) {
+                if ((sum / data.length) > thresholdRef.current) { 
+                    gainNode.gain.setTargetAtTime(1, ctx.currentTime, 0.05); 
+                } else { 
+                    gainNode.gain.setTargetAtTime(0, ctx.currentTime, 0.2); 
+                }
             }
-        }, 50);
+        };
+        interval = setInterval(processAudio, 50);
+        const newTracks = [...destination.stream.getAudioTracks(), ...rawStream.getVideoTracks()];
+        setProcessedStream(new MediaStream(newTracks));
 
-        return () => clearInterval(interval);
-    }, []);
-
-    // 2. Connect/Disconnect Raw Stream (Mic)
-    useEffect(() => {
-        if (!contextRef.current || !rawStream) return;
-        const { ctx, gainNode, analyser, destination } = contextRef.current;
-
-        // If screen share (has video) or no audio, bypass processing
-        if (rawStream.getVideoTracks().length > 0 || rawStream.getAudioTracks().length === 0) {
-            setProcessedStream(rawStream);
-            return;
-        }
-
-        // Cleanup old source
-        if (contextRef.current.source) {
-            contextRef.current.source.disconnect();
-        }
-
-        // Create new source
-        const newSource = ctx.createMediaStreamSource(rawStream);
-        newSource.connect(analyser); // Analyzer first for gate
-        analyser.connect(gainNode);  // Then Gain for mute/gate
-        contextRef.current.source = newSource;
-
-        // Set output stream (Mix of processed audio + original video if any)
-        const combinedTracks = [...destination.stream.getAudioTracks(), ...rawStream.getVideoTracks()];
-        setProcessedStream(new MediaStream(combinedTracks));
-
+        return () => { clearInterval(interval); source.disconnect(); analyser.disconnect(); gainNode.disconnect(); };
     }, [rawStream]);
-
-    // 3. FORCE TRACK SYNC: Toggle .enabled on the ACTUAL output track when mute changes
-    // This sends the signal to the peer!
-    useEffect(() => {
-        if (processedStream) {
-            processedStream.getAudioTracks().forEach(track => {
-                // IMPORTANT: This flips the bit that WebRTC sends to the other peer
-                track.enabled = !isMuted; 
-            });
-        }
-    }, [isMuted, processedStream]);
 
     return processedStream;
 };
 
 // --- COMPONENTS ---
-const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, username, outputDeviceId, isScreenShare, globalDeaf }: { stream: MediaStream | null; isLocal: boolean; userId: string; userAvatar?: string; username?: string; outputDeviceId?: string; isScreenShare?: boolean; globalDeaf?: boolean }) => {
+const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, username, outputDeviceId, isScreenShare, globalDeaf, remoteMuted }: { stream: MediaStream | null; isLocal: boolean; userId: string; userAvatar?: string; username?: string; outputDeviceId?: string; isScreenShare?: boolean; globalDeaf?: boolean; remoteMuted?: boolean }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const isSpeaking = useStreamAnalyzer(stream); 
   const [hasVideo, setHasVideo] = useState(false);
-  const [isAudioEnabled, setIsAudioEnabled] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [volume, setVolume] = useState(1);
 
+  // Check for video tracks
   useEffect(() => {
-    if(!stream) { setHasVideo(false); setIsAudioEnabled(false); return; }
+    if(!stream) { setHasVideo(false); return; }
     const checkStatus = () => {
         setHasVideo(stream.getVideoTracks().length > 0 && stream.getVideoTracks()[0].enabled);
-        const audioTrack = stream.getAudioTracks()[0];
-        // Check both .enabled (User Mute) and .muted (System Mute)
-        setIsAudioEnabled(audioTrack ? (audioTrack.enabled && !audioTrack.muted) : false);
     };
-    const statusInterval = setInterval(checkStatus, 200); // Faster polling
+    const statusInterval = setInterval(checkStatus, 500);
     checkStatus();
     return () => clearInterval(statusInterval);
   }, [stream]);
@@ -249,13 +208,16 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
       <video ref={videoRef} autoPlay playsInline muted={shouldMuteVideoElement} className={`absolute inset-0 w-full h-full ${objectFitClass} transition-all duration-300 ${hasVideo ? 'opacity-100' : 'opacity-0'} ${isLocal && !isScreenShare ? 'scale-x-[-1]' : ''}`} />
       {!hasVideo && (
         <div className="z-10 flex flex-col items-center">
-            <div className={`relative w-24 h-24 rounded-full p-1 transition-all duration-150 ${isSpeaking ? "bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.6)] scale-105" : "bg-gray-700"}`}>
+            <div className={`relative w-24 h-24 rounded-full p-1 transition-all duration-150 ${isSpeaking && !remoteMuted ? "bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.6)] scale-105" : "bg-gray-700"}`}>
                 <img src={userAvatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userId}`} className="w-full h-full rounded-full object-cover border-2 border-gray-900" alt="avatar"/>
             </div>
         </div>
       )}
-      {hasVideo && isSpeaking && (<div className="absolute inset-0 border-4 border-green-500 rounded-xl z-20 pointer-events-none opacity-50"></div>)}
-      {!isAudioEnabled && (<div className="absolute top-4 right-4 bg-red-600 p-2 rounded-full shadow-lg z-20 animate-in fade-in zoom-in duration-200"><MicOff size={16} className="text-white" /></div>)}
+      {hasVideo && isSpeaking && !remoteMuted && (<div className="absolute inset-0 border-4 border-green-500 rounded-xl z-20 pointer-events-none opacity-50"></div>)}
+      
+      {/* SHOW MUTE ICON IF REMOTE SAYS SO */}
+      {remoteMuted && (<div className="absolute top-4 right-4 bg-red-600 p-2 rounded-full shadow-lg z-20 animate-in fade-in zoom-in duration-200"><MicOff size={16} className="text-white" /></div>)}
+      
       {!isLocal && (<div className="absolute bottom-12 left-1/2 -translate-x-1/2 w-3/4 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 px-3 py-1 rounded-full flex items-center gap-2 z-30"><Volume size={14} className="text-gray-300"/><input type="range" min="0" max="1" step="0.05" value={volume} onChange={e=>setVolume(Number(e.target.value))} className="w-full"/></div>)}
       <button onClick={toggleFullscreen} className="absolute bottom-10 right-4 p-2 bg-black/50 hover:bg-black/80 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity z-20">{isFullscreen ? <Minimize size={20}/> : <Maximize size={20}/>}</button>
       <div className={`absolute bottom-4 left-4 z-20 text-white font-bold text-sm bg-black/60 px-3 py-1 rounded backdrop-blur-sm flex items-center gap-1 ${isFullscreen ? 'scale-125 origin-bottom-left' : ''}`}>{username || "Guest"} {isLocal && "(You)"}</div>
@@ -264,11 +226,37 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
 });
 UserMediaComponent.displayName = "UserMediaComponent";
 
+// === PEER WRAPPER WITH DATA CHANNEL LISTENER ===
 const GroupPeerWrapper = ({ peer, peerID, outputDeviceId, allUsers, globalDeaf }: { peer: Peer.Instance; peerID: string; outputDeviceId?: string; allUsers: any[]; globalDeaf: boolean }) => {
   const [stream, setStream] = useState<MediaStream | null>(null);
-  useEffect(() => { const onStream = (s: MediaStream) => setStream(s); peer.on("stream", onStream); if ((peer as any)._remoteStreams?.length) setStream((peer as any)._remoteStreams[0]); return () => { peer.off("stream", onStream); }; }, [peer]);
+  const [remoteMuted, setRemoteMuted] = useState(false);
+
+  useEffect(() => { 
+      const onStream = (s: MediaStream) => setStream(s); 
+      // Listen for DATA (Mute signals)
+      const onData = (data: any) => {
+          try {
+              const str = new TextDecoder("utf-8").decode(data);
+              const json = JSON.parse(str);
+              if (json.type === 'mute-status') {
+                  setRemoteMuted(json.isMuted);
+              }
+          } catch(e) { console.log("Data channel error", e); }
+      };
+
+      peer.on("stream", onStream); 
+      peer.on("data", onData);
+
+      if ((peer as any)._remoteStreams?.length) setStream((peer as any)._remoteStreams[0]); 
+      
+      return () => { 
+          peer.off("stream", onStream); 
+          peer.off("data", onData);
+      }; 
+  }, [peer]);
+
   const u = allUsers.find((x: any) => x.socketId === peerID);
-  return <UserMediaComponent stream={stream} isLocal={false} userId={peerID} userAvatar={u?.avatar} username={u?.username || "Connecting..."} outputDeviceId={outputDeviceId} isScreenShare={false} globalDeaf={globalDeaf}/>;
+  return <UserMediaComponent stream={stream} isLocal={false} userId={peerID} userAvatar={u?.avatar} username={u?.username || "Connecting..."} outputDeviceId={outputDeviceId} isScreenShare={false} globalDeaf={globalDeaf} remoteMuted={remoteMuted}/>;
 };
 
 // ============================ APP ============================
@@ -339,7 +327,6 @@ export default function EcoTalkApp() {
   
   const [isVideoOn, setIsVideoOn] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
-  
   const processedStream = useProcessedStream(myStream, voiceThreshold, isMuted);
   const [muteKey, setMuteKey] = useState<string | null>(null);
   const [isRecordingKey, setIsRecordingKey] = useState(false);
@@ -356,11 +343,25 @@ export default function EcoTalkApp() {
   useEffect(() => { activeDMRef.current = activeDM; }, [activeDM]);
   useEffect(() => { document.documentElement.setAttribute('data-theme', theme); localStorage.setItem('eco_theme', theme); }, [theme]);
   
-  // === GLOBAL KEYBIND LISTENER ===
+  // === BROADCAST MUTE STATE VIA DATA CHANNEL ===
+  const broadcastMuteState = (muted: boolean) => {
+      const msg = JSON.stringify({ type: 'mute-status', isMuted: muted });
+      peersRef.current.forEach(p => {
+          if (p.peer && !p.peer.destroyed) {
+              try { p.peer.send(msg); } catch(e) {}
+          }
+      });
+  };
+
+  useEffect(() => {
+     // Broadcast whenever mute changes
+     broadcastMuteState(isMuted);
+  }, [isMuted, peers]);
+
   useEffect(() => {
       const handleKeyDown = (e: KeyboardEvent) => {
           if (isRecordingKey) { e.preventDefault(); setMuteKey(e.code); localStorage.setItem("eco_mute_key", e.code); setIsRecordingKey(false); playSound("click"); } 
-          else if (muteKey && e.code === muteKey) { const target = e.target as HTMLElement; if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return; e.preventDefault(); if (activeVoiceChannel && myStream) { toggleMute(); } }
+          else if (muteKey && e.code === muteKey) { const target = e.target as HTMLElement; if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return; e.preventDefault(); if (activeVoiceChannel && myStream) { toggleMute(); playSound("click"); } }
       };
       window.addEventListener("keydown", handleKeyDown); return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isRecordingKey, muteKey, activeVoiceChannel, myStream, isMuted, soundEnabled]); 
@@ -415,8 +416,25 @@ export default function EcoTalkApp() {
     return () => { clearTimeout(t); socket.off("all_users_in_voice", handleAllUsers); socket.off("user_joined_voice", handleUserJoined); socket.off("receiving_returned_signal", handleReturned); socket.off("user_left_voice", handleLeft); peersRef.current.forEach((p) => p.peer.destroy()); peersRef.current = []; setPeers([]); socket.emit("leave_voice_channel"); };
   }, [activeVoiceChannel, myStream, processedStream, socket]);
 
-  function createPeer(userToSignal: string, callerID: string, stream: MediaStream, s: Socket) { const peer = new Peer({ initiator: true, trickle: false, stream, config: peerConfig }); peer.on("signal", (signal) => { s.emit("sending_signal", { userToSignal, callerID, signal }); }); return peer; }
-  function addPeer(incomingSignal: any, callerID: string, stream: MediaStream, s: Socket) { const peer = new Peer({ initiator: false, trickle: false, stream, config: peerConfig }); peer.on("signal", (signal) => { s.emit("returning_signal", { signal, callerID }); }); peer.signal(incomingSignal); return peer; }
+  function createPeer(userToSignal: string, callerID: string, stream: MediaStream, s: Socket) { 
+      const peer = new Peer({ initiator: true, trickle: false, stream, config: peerConfig }); 
+      peer.on("signal", (signal) => { s.emit("sending_signal", { userToSignal, callerID, signal }); }); 
+      // Send initial mute state when connected
+      peer.on("connect", () => {
+          try { peer.send(JSON.stringify({ type: 'mute-status', isMuted: isMuted })); } catch(e){}
+      });
+      return peer; 
+  }
+  function addPeer(incomingSignal: any, callerID: string, stream: MediaStream, s: Socket) { 
+      const peer = new Peer({ initiator: false, trickle: false, stream, config: peerConfig }); 
+      peer.on("signal", (signal) => { s.emit("returning_signal", { signal, callerID }); }); 
+      // Send initial mute state when connected
+      peer.on("connect", () => {
+          try { peer.send(JSON.stringify({ type: 'mute-status', isMuted: isMuted })); } catch(e){}
+      });
+      peer.signal(incomingSignal); 
+      return peer; 
+  }
 
   const fetchUserData = async (t: string) => { const res = await fetch(`${SOCKET_URL}/api/me`, { headers: { Authorization: t } }); if (!res.ok) return; const d = await res.json(); setCurrentUser(d); setMyServers(d.servers?.map((s: any) => s.server) || []); setMyFriends(d.friendsList || []); socket.emit("auth_user", d.id); };
   const handleAuth = async () => { const res = await fetch(`${SOCKET_URL}/api/auth/${authMode}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(authInput), }); const data = await res.json(); if (res.ok) { localStorage.setItem("eco_token", data.token); setToken(data.token); playSound("join"); window.location.reload(); } else { alert(data.error); } };
@@ -499,26 +517,20 @@ export default function EcoTalkApp() {
   };
   const leaveVoiceChannel = () => { if (myStream) myStream.getTracks().forEach((track) => track.stop()); setMyStream(null); setActiveVoiceChannel(null); setIsVideoOn(false); setIsScreenSharing(false); setIsDeafened(false); setIsMuted(false); playSound("leave"); if (activeChannel?.id === activeVoiceChannel) { const server = myServers.find((s) => s.id === activeServerId); const firstText = server?.channels?.find((c: any) => c.type === "text"); if (firstText) selectChannel(firstText); } };
   
-  // === TOGGLE MUTE (Mic) ===
   const toggleMute = () => { 
       if (!myStream) return; 
       playSound("click"); 
       const newState = !isMuted;
       setIsMuted(newState);
-      // Auto-undeafen if unmuting
       if (!newState && isDeafened) setIsDeafened(false);
   };
 
-  // === TOGGLE DEAFEN (Headphones) ===
   const toggleDeafen = () => {
       if (!myStream) return;
       playSound("click");
       const newState = !isDeafened;
       setIsDeafened(newState);
-      if (newState) {
-          // If deafening, ensure mic is muted
-          setIsMuted(true);
-      }
+      if (newState) setIsMuted(true);
   };
 
   const selectDM = (friend: any) => { if (friend.id === currentUser?.id) return; setActiveServerId(null); if (activeVoiceChannel) leaveVoiceChannel(); setActiveDM(friend); setActiveChannel(null); setMessages([]); const me = currentUser; if (!me) return; const ids = [me.id, friend.id].sort(); socket.emit("join_dm", { roomName: `dm_${ids[0]}_${ids[1]}` }); playSound("click"); };
