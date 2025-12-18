@@ -208,17 +208,24 @@ app.get("/api/me", authenticateToken, async (req, res) => {
   }
 });
 
-app.put("/api/me", authenticateToken, async (req, res) => {
-  try {
-    const { username, avatar } = req.body || {};
-    const data = {};
-    if (typeof username === "string" && username.trim()) data.username = username.trim();
-    if (typeof avatar === "string") data.avatar = avatar;
+app.post("/api/auth/register", async (req, res) => {
+  const { username, password } = req.body || {};
+  if (!username || !password) return res.status(400).json({ error: "Missing username/password" });
 
-    const updated = await prisma.user.update({
-      where: { id: req.user.id },
-      data,
-      select: { id: true, username: true, avatar: true, status: true, lastSeen: true },
+  try {
+    const existing = await prisma.user.findUnique({ where: { username } });
+    if (existing) return res.status(400).json({ error: "Taken" });
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const user = await prisma.user.create({
+      data: {
+        username,
+        password: hashedPassword,
+        status: "online",
+        avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(username)}`,
+        friendsData: "[]",
+      },
     });
 
     res.json(updated);
