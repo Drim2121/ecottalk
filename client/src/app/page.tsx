@@ -12,27 +12,27 @@ import io, { Socket } from "socket.io-client";
 import Peer from "simple-peer";
 
 // ===== CONSTANTS =====
-const SOCKET_URL = "http://5.129.215.82:3001"; // Замените на ваш домен https://...
+const SOCKET_URL = "http://5.129.215.82:3001"; // Убедитесь, что тут ваш актуальный IP или домен
 
 // ===== COSMETICS DATA =====
 const AVAILABLE_FRAMES = [
   { id: 'none', name: 'No Frame', css: 'border border-white/10' },
-  { id: 'gold', name: 'Golden Legend', css: 'ring-[3px] ring-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.6)] border-2 border-yellow-200' },
-  { id: 'neon', name: 'Cyberpunk', css: 'ring-[3px] ring-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.8)] border-2 border-white' },
-  { id: 'ruby', name: 'Ruby Master', css: 'ring-[3px] ring-red-600 shadow-[0_0_15px_rgba(220,38,38,0.6)] border-2 border-red-400' },
+  { id: 'gold', name: 'Golden Legend', css: 'ring-[3px] ring-yellow-400 shadow-[0_0_10px_rgba(250,204,21,0.5)] border-2 border-yellow-200' },
+  { id: 'neon', name: 'Cyberpunk', css: 'ring-[3px] ring-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.7)] border-2 border-white' },
+  { id: 'ruby', name: 'Ruby Master', css: 'ring-[3px] ring-red-600 shadow-[0_0_10px_rgba(220,38,38,0.5)] border-2 border-red-400' },
   { id: 'nature', name: 'Eco Warrior', css: 'ring-[3px] ring-green-500 border-2 border-emerald-900 border-dashed' },
-  { id: 'fire', name: 'Inferno', css: 'ring-[3px] ring-orange-500 shadow-[0_0_20px_rgba(249,115,22,0.8)] animate-pulse' },
+  { id: 'fire', name: 'Inferno', css: 'ring-[3px] ring-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.8)] animate-pulse' },
 ];
 
 const AVAILABLE_BANNERS = [
-  { id: 'default', color: 'bg-transparent' }, // Прозрачный по умолчанию
-  { id: 'gray', color: 'bg-gray-700' },
+  { id: 'default', color: '' }, // Без фона
+  { id: 'gray', color: 'bg-gray-600' },
   { id: 'blue', color: 'bg-blue-600' },
   { id: 'purple', color: 'bg-purple-600' },
   { id: 'gold', color: 'bg-gradient-to-r from-yellow-600 to-yellow-300' },
   { id: 'forest', color: 'bg-gradient-to-br from-green-800 to-emerald-500' },
   { id: 'crimson', color: 'bg-gradient-to-br from-red-900 to-red-600' },
-  { id: 'night', color: 'bg-slate-900' },
+  { id: 'night', color: 'bg-slate-800' },
 ];
 
 // ===== THEMES =====
@@ -79,18 +79,22 @@ const useProcessedStream = (rawStream: MediaStream | null, threshold: number, is
     return processedStream;
 };
 
-// --- UNIVERSAL AVATAR COMPONENT (UPDATED) ---
+// --- UNIVERSAL AVATAR COMPONENT (FIXED RENDER) ---
 const AvatarWithFrame = ({ url, frameId, sizeClass = "w-10 h-10", isOnline = false, showStatus = true }: { url: string, frameId?: string, sizeClass?: string, isOnline?: boolean, showStatus?: boolean }) => {
     const frame = AVAILABLE_FRAMES.find(f => f.id === (frameId || 'none')) || AVAILABLE_FRAMES[0];
+    
+    // We remove "overflow-hidden" from the container so the frame (ring) can be seen outside
     return (
         <div className={`relative ${sizeClass} flex-shrink-0`}>
-            {/* Frame */}
-            <div className={`absolute inset-0 rounded-full ${frame.css} pointer-events-none z-10`}></div>
+            {/* Frame - Rendered absolutely over the image */}
+            <div className={`absolute -inset-[3px] rounded-full ${frame.css} pointer-events-none z-10`}></div>
+            
             {/* Image */}
             <img src={url} className="w-full h-full rounded-full object-cover" alt="avatar" />
-            {/* Status Dot - BIGGER AND BORDERED */}
+            
+            {/* Status Dot */}
             {showStatus && (
-                <div className={`absolute bottom-0 right-0 w-3.5 h-3.5 border-2 border-[var(--bg-primary)] rounded-full z-20 ${isOnline ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.8)]' : 'bg-gray-500'}`}></div>
+                <div className={`absolute bottom-0 right-0 w-[28%] h-[28%] border-[2.5px] border-[var(--bg-primary)] rounded-full z-20 ${isOnline ? 'bg-green-500 shadow-sm' : 'bg-gray-500'}`}></div>
             )}
         </div>
     );
@@ -113,7 +117,7 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
       <video ref={videoRef} autoPlay playsInline muted={shouldMuteVideoElement} className={`absolute inset-0 w-full h-full ${objectFitClass} transition-all duration-300 ${hasVideo ? 'opacity-100' : 'opacity-0'} ${isLocal && !isScreenShare ? 'scale-x-[-1]' : ''}`} />
       {!hasVideo && (
         <div className="z-10 flex flex-col items-center">
-            <div className={`relative ${avatarSize} rounded-full p-1 transition-all duration-150 ${isSpeaking && !remoteMuted ? "scale-110" : ""}`}>
+            <div className={`relative ${avatarSize} rounded-full p-2 transition-all duration-150 ${isSpeaking && !remoteMuted ? "scale-110" : ""}`}>
                 <AvatarWithFrame url={userAvatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userId}`} frameId={frameId} sizeClass="w-full h-full" showStatus={false}/>
             </div>
         </div>
@@ -460,9 +464,9 @@ export default function EcoTalkApp() {
                 <h3 className="text-xs font-bold text-[var(--text-secondary)] mb-2">MEMBERS — {currentServerMembers.length}</h3>
                 {currentServerMembers.map(member => (
                     <div key={member.id} className={`flex items-center justify-between group p-2 mb-1 rounded cursor-pointer transition-colors hover:bg-[var(--bg-tertiary)] relative overflow-hidden`} onClick={() => handleUserClick(member)}>
-                        {/* Member Background from Banner */}
+                        {/* Member Background from Banner - MADE VISIBLE (opacity-40) */}
                         {member.banner && member.banner !== 'default' && (
-                            <div className={`absolute inset-0 opacity-20 pointer-events-none ${AVAILABLE_BANNERS.find(b=>b.id===member.banner)?.color}`}></div>
+                            <div className={`absolute inset-0 opacity-40 pointer-events-none ${AVAILABLE_BANNERS.find(b=>b.id===member.banner)?.color}`}></div>
                         )}
                         
                         <div className="flex items-center gap-3 relative z-10">
