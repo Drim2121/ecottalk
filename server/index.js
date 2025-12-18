@@ -20,6 +20,24 @@ const io = new Server(server, {
   maxHttpBufferSize: 1e8,
 });
 
+// ===== SHOP CONFIG (Цены должны совпадать с клиентом) =====
+const SHOP_PRICES = {
+  // Frames
+  'gold': 500,
+  'neon': 1000,
+  'ruby': 2500,
+  'nature': 300,
+  'fire': 5000,
+  // Banners
+  'blue': 100,
+  'purple': 100,
+  'gold': 1000,
+  'forest': 200,
+  'crimson': 300,
+  'night': 500,
+  'gray': 50
+};
+
 // ======================= HELPERS =======================
 const authenticateToken = (req, res, next) => {
   const token = req.headers["authorization"];
@@ -96,10 +114,6 @@ async function ensureMember(serverId, userId) {
 }
 
 // ======================= VOICE STATE =======================
-/**
- * rooms[roomId] = [{ socketId, userId }]
- * socketToRoom[socketId] = roomId
- */
 const rooms = {};
 const socketToRoom = {};
 
@@ -114,7 +128,7 @@ const broadcastRoomUsers = async (roomId) => {
     unique.add(p.userId);
     const u = await prisma.user.findUnique({ where: { id: p.userId } });
     if (u) {
-      users.push({ id: u.id, username: u.username, avatar: u.avatar, socketId: p.socketId });
+      users.push({ id: u.id, username: u.username, avatar: u.avatar, socketId: p.socketId, frame: u.frame });
     }
   }
 
@@ -132,10 +146,91 @@ const leaveRoomBySocket = async (socket) => {
   }
 
   delete socketToRoom[socket.id];
-  io.emit("user_left_voice", socket.id); // фронт слушает по socketId
+  io.emit("user_left_voice", socket.id); 
 };
 
-// ======================= AUTH =======================
+// ======================= AUTH & USER =======================
+
+app.get("/api/me", authenticateToken, async (req, res) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    if (!user) return res.sendStatus(404);
+
+    const friendsList = await getUserFriends(user.id);
+    const notifications = await prisma.notification.findMany({
+      where: { receiverId: user.id },
+      include: { sender: true, server: true },
+      orderBy: { createdAt: "desc" },
+    });
+
+    const memberships = await prisma.member.findMany({
+      where: { userId: user.id },
+      include: { server: true },
+    });
+
+    res.json({ 
+        ...user, 
+        friendsList, 
+        notifications,
+        servers: memberships 
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Error" });
+  }
+});
+
+// Update Profile
+app.put('/api/me', authenticateToken, async (req, res) => {
+  try {
+    const { username, avatar, frame, banner } = req.body;
+    const updated = await prisma.user.update({
+      where: { id: req.user.id },
+      data: { 
+        username, 
+        avatar,
+        frame, 
+        banner 
+      }
+    });
+    res.json(updated);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Ошибка" });
+  }
+});
+
+// === SHOP BUY ===
+app.post("/api/shop/buy", authenticateToken, async (req, res) => {
+  try {
+    const { itemId } = req.body;
+    const price = SHOP_PRICES[itemId];
+
+    if (!price) return res.status(400).json({ error: "Item not found" });
+
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    if (user.coins < price) return res.status(400).json({ error: "Not enough coins" });
+
+    const inventory = safeJsonParse(user.inventory, []);
+    if (inventory.includes(itemId)) return res.status(400).json({ error: "Already owned" });
+
+    inventory.push(itemId);
+
+    const updated = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        coins: { decrement: price },
+        inventory: JSON.stringify(inventory)
+      }
+    });
+
+    res.json({ coins: updated.coins, inventory });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Transaction failed" });
+  }
+});
+
 app.post("/api/auth/register", async (req, res) => {
   const { username, password } = req.body || {};
   if (!username || !password) return res.status(400).json({ error: "Missing username/password" });
@@ -153,6 +248,7 @@ app.post("/api/auth/register", async (req, res) => {
         status: "online",
         avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(username)}`,
         friendsData: "[]",
+        coins: 100, // Бонус за регистрацию
       },
     });
 
@@ -185,60 +281,8 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-// ======================= ME =======================
-app.get("/api/me", authenticateToken, async (req, res) => {
-  try {
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
-      include: { servers: { include: { server: { include: { channels: true } } } } },
-    });
-    if (!user) return res.sendStatus(404);
-
-    const friendsList = await getUserFriends(req.user.id);
-    const notifications = await prisma.notification.findMany({
-      where: { receiverId: req.user.id, status: "PENDING" },
-      include: { sender: true, server: true },
-      orderBy: { createdAt: "desc" },
-    });
-
-    res.json({ ...user, friendsList, notifications });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: "Error" });
-  }
-});
-
-app.post("/api/auth/register", async (req, res) => {
-  const { username, password } = req.body || {};
-  if (!username || !password) return res.status(400).json({ error: "Missing username/password" });
-
-  try {
-    const existing = await prisma.user.findUnique({ where: { username } });
-    if (existing) return res.status(400).json({ error: "Taken" });
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    const user = await prisma.user.create({
-      data: {
-        username,
-        password: hashedPassword,
-        status: "online",
-        avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(username)}`,
-        friendsData: "[]",
-      },
-    });
-
-    res.json(updated);
-  } catch (e) {
-    console.error(e);
-    // если username unique конфликт — Prisma кинет ошибку
-    res.status(500).json({ error: "Error" });
-  }
-});
-
 // ======================= SERVERS =======================
 
-// Create server
 app.post("/api/servers", authenticateToken, async (req, res) => {
   try {
     const { name, icon, description } = req.body || {};
@@ -270,7 +314,6 @@ app.post("/api/servers", authenticateToken, async (req, res) => {
   }
 });
 
-// Get server by id  ✅ ЭТО ТО, ЧЕГО НЕ ХВАТАЛО
 app.get("/api/server/:id", authenticateToken, async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -285,8 +328,6 @@ app.get("/api/server/:id", authenticateToken, async (req, res) => {
     });
 
     if (!serverData) return res.status(404).json({ error: "Server not found" });
-
-    // фронту нужно data.members.map(m => m.user)
     res.json(serverData);
   } catch (e) {
     console.error(e);
@@ -294,7 +335,6 @@ app.get("/api/server/:id", authenticateToken, async (req, res) => {
   }
 });
 
-// Update server
 app.put("/api/server/:id", authenticateToken, async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -318,7 +358,6 @@ app.put("/api/server/:id", authenticateToken, async (req, res) => {
   }
 });
 
-// Delete server
 app.delete("/api/server/:id", authenticateToken, async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -333,7 +372,6 @@ app.delete("/api/server/:id", authenticateToken, async (req, res) => {
   }
 });
 
-// Kick member
 app.delete("/api/server/:serverId/kick/:userId", authenticateToken, async (req, res) => {
   try {
     const serverId = Number(req.params.serverId);
@@ -350,7 +388,6 @@ app.delete("/api/server/:serverId/kick/:userId", authenticateToken, async (req, 
   }
 });
 
-// Invite to server (creates notification)
 app.post("/api/servers/invite", authenticateToken, async (req, res) => {
   try {
     const { serverId, username } = req.body || {};
@@ -363,7 +400,6 @@ app.post("/api/servers/invite", authenticateToken, async (req, res) => {
     const receiver = await prisma.user.findUnique({ where: { username } });
     if (!receiver) return res.status(404).json({ error: "User not found" });
 
-    // Если уже участник — не шлём
     const alreadyMember = await prisma.member.findFirst({ where: { serverId: sid, userId: receiver.id } });
     if (alreadyMember) return res.json({ ok: true });
 
@@ -455,12 +491,10 @@ app.post("/api/friends/invite", authenticateToken, async (req, res) => {
     if (!receiver) return res.status(404).json({ error: "User not found" });
     if (receiver.id === req.user.id) return res.status(400).json({ error: "Cannot add yourself" });
 
-    // если уже друзья — ок
     const me = await prisma.user.findUnique({ where: { id: req.user.id } });
     const list = safeJsonParse(me?.friendsData || "[]", []);
     if (list.includes(receiver.id)) return res.json({ ok: true });
 
-    // если уже есть pending
     const existingNotif = await prisma.notification.findFirst({
       where: {
         type: "FRIEND_REQUEST",
@@ -739,6 +773,16 @@ io.on("connection", (socket) => {
         include: { user: true, reactions: { include: { user: true } } },
       });
 
+      // === ECO: Add Coin ===
+      try {
+        const updatedUser = await prisma.user.update({
+            where: { id: Number(userId) },
+            data: { coins: { increment: 1 } }
+        });
+        socket.emit("balance_update", updatedUser.coins);
+      } catch (err) {}
+      // ====================
+
       const room = m.channelId ? `channel_${m.channelId}` : m.dmRoom;
       if (room) io.to(room).emit("receive_message", m);
     } catch (e) {
@@ -760,10 +804,7 @@ io.on("connection", (socket) => {
   // ---------- VOICE: JOIN/LEAVE ----------
   socket.on("join_voice_channel", async (roomId) => {
     try {
-      // гарантируем userId
       if (!socket.userId) return;
-
-      // если уже был в другой комнате — выйди
       await leaveRoomBySocket(socket);
 
       const rid = String(roomId);
@@ -771,11 +812,9 @@ io.on("connection", (socket) => {
       rooms[rid].push({ socketId: socket.id, userId: socket.userId });
       socketToRoom[socket.id] = rid;
 
-      // сообщаем новичку список socketId остальных
       const others = rooms[rid].filter((p) => p.socketId !== socket.id).map((p) => p.socketId);
       socket.emit("all_users_in_voice", others);
 
-      // сообщаем остальным, что вошёл новый (для WebRTC handshake)
       rooms[rid]
         .filter((p) => p.socketId !== socket.id)
         .forEach((p) => io.to(p.socketId).emit("user_joined_voice", { callerID: socket.id, signal: null }));
@@ -794,24 +833,12 @@ io.on("connection", (socket) => {
     }
   });
 
-  // фронт зовёт "leave_voice_channel" через emit("leave_voice_channel") не всегда,
-  // но в cleanup он вызывает socket.emit("leave_voice_channel") или "leave_voice_channel"
-  socket.on("leave_voice_channel", async () => {
-    try {
-      await leaveRoomBySocket(socket);
-    } catch (e) {
-      console.error(e);
-    }
-  });
-
   // ---------- WEBRTC SIGNALING (simple-peer) ----------
   socket.on("sending_signal", ({ userToSignal, callerID, signal }) => {
-    // userToSignal — это socketId получателя
     io.to(userToSignal).emit("user_joined_voice", { callerID, signal });
   });
 
   socket.on("returning_signal", ({ callerID, signal }) => {
-    // callerID — socketId инициатора
     io.to(callerID).emit("receiving_returned_signal", { id: socket.id, signal });
   });
 });

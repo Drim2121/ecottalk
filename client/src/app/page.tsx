@@ -6,7 +6,7 @@ import {
   Check, X, Settings, Trash2, UserMinus, Users, Volume2, Mic, MicOff, Smile, Edit2,
   Palette, Zap, ZapOff, Video, VideoOff, Monitor, MonitorOff, Volume1, VolumeX, Camera,
   Maximize, Minimize, Keyboard, Sliders, Volume, Headphones, HeadphoneOff, WifiOff, UploadCloud,
-  User, Speaker, Image as ImageIcon, Sparkles, MoreVertical
+  User, Speaker, Image as ImageIcon, Sparkles, MoreVertical, ShoppingBag, Coins, Lock
 } from "lucide-react";
 import io, { Socket } from "socket.io-client";
 import Peer from "simple-peer";
@@ -14,25 +14,25 @@ import Peer from "simple-peer";
 // ===== CONSTANTS =====
 const SOCKET_URL = "http://5.129.215.82:3001"; 
 
-// ===== COSMETICS DATA =====
+// ===== SHOP DATA =====
 const AVAILABLE_FRAMES = [
-  { id: 'none', name: 'No Frame', css: 'border border-white/10' },
-  { id: 'gold', name: 'Golden Legend', css: 'ring-[3px] ring-yellow-400 shadow-[0_0_10px_rgba(250,204,21,0.5)] border-2 border-yellow-200' },
-  { id: 'neon', name: 'Cyberpunk', css: 'ring-[3px] ring-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.7)] border-2 border-white' },
-  { id: 'ruby', name: 'Ruby Master', css: 'ring-[3px] ring-red-600 shadow-[0_0_10px_rgba(220,38,38,0.5)] border-2 border-red-400' },
-  { id: 'nature', name: 'Eco Warrior', css: 'ring-[3px] ring-green-500 border-2 border-emerald-900 border-dashed' },
-  { id: 'fire', name: 'Inferno', css: 'ring-[3px] ring-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.8)] animate-pulse' },
+  { id: 'none', name: 'No Frame', price: 0, css: 'border border-white/10' },
+  { id: 'gold', name: 'Golden Legend', price: 500, css: 'ring-[3px] ring-yellow-400 shadow-[0_0_10px_rgba(250,204,21,0.5)] border-2 border-yellow-200' },
+  { id: 'neon', name: 'Cyberpunk', price: 1000, css: 'ring-[3px] ring-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.7)] border-2 border-white' },
+  { id: 'ruby', name: 'Ruby Master', price: 2500, css: 'ring-[3px] ring-red-600 shadow-[0_0_10px_rgba(220,38,38,0.5)] border-2 border-red-400' },
+  { id: 'nature', name: 'Eco Warrior', price: 300, css: 'ring-[3px] ring-green-500 border-2 border-emerald-900 border-dashed' },
+  { id: 'fire', name: 'Inferno', price: 5000, css: 'ring-[3px] ring-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.8)] animate-pulse' },
 ];
 
 const AVAILABLE_BANNERS = [
-  { id: 'default', color: '' }, 
-  { id: 'gray', color: 'bg-gray-600' },
-  { id: 'blue', color: 'bg-blue-600' },
-  { id: 'purple', color: 'bg-purple-600' },
-  { id: 'gold', color: 'bg-gradient-to-r from-yellow-600 to-yellow-300' },
-  { id: 'forest', color: 'bg-gradient-to-br from-green-800 to-emerald-500' },
-  { id: 'crimson', color: 'bg-gradient-to-br from-red-900 to-red-600' },
-  { id: 'night', color: 'bg-slate-800' },
+  { id: 'default', name: 'Default', price: 0, color: '' }, 
+  { id: 'gray', name: 'Slate', price: 50, color: 'bg-gray-600' },
+  { id: 'blue', name: 'Ocean', price: 100, color: 'bg-blue-600' },
+  { id: 'purple', name: 'Void', price: 100, color: 'bg-purple-600' },
+  { id: 'gold', name: 'Luxury', price: 1000, color: 'bg-gradient-to-r from-yellow-600 to-yellow-300' },
+  { id: 'forest', name: 'Deep Forest', price: 200, color: 'bg-gradient-to-br from-green-800 to-emerald-500' },
+  { id: 'crimson', name: 'Blood Moon', price: 300, color: 'bg-gradient-to-br from-red-900 to-red-600' },
+  { id: 'night', name: 'Midnight', price: 500, color: 'bg-slate-800' },
 ];
 
 // ===== THEMES =====
@@ -84,11 +84,8 @@ const AvatarWithFrame = ({ url, frameId, sizeClass = "w-10 h-10", isOnline = fal
     const frame = AVAILABLE_FRAMES.find(f => f.id === (frameId || 'none')) || AVAILABLE_FRAMES[0];
     return (
         <div className={`relative ${sizeClass} flex-shrink-0`}>
-            {/* Frame Layer */}
             <div className={`absolute -inset-[3px] rounded-full ${frame.css} pointer-events-none z-10`}></div>
-            {/* Image Layer */}
             <img src={url} className="w-full h-full rounded-full object-cover" alt="avatar" />
-            {/* Status Layer */}
             {showStatus && (
                 <div className={`absolute bottom-0 right-0 w-[28%] h-[28%] border-[2.5px] border-[var(--bg-primary)] rounded-full z-20 ${isOnline ? 'bg-green-500 shadow-sm' : 'bg-gray-500'}`}></div>
             )}
@@ -179,14 +176,16 @@ export default function EcoTalkApp() {
   const [editServerIcon, setEditServerIcon] = useState("");
   const [editingChannel, setEditingChannel] = useState<any>(null);
   const [showUserSettings, setShowUserSettings] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'profile' | 'appearance' | 'audio' | 'hotkeys'>('profile');
+  const [settingsTab, setSettingsTab] = useState<'profile' | 'appearance' | 'audio' | 'hotkeys' | 'shop'>('profile');
   const [editUserName, setEditUserName] = useState("");
   const [editUserAvatar, setEditUserAvatar] = useState("");
   
-  // === PROFILE & VIEWING ===
+  // === PROFILE & SHOP ===
   const [viewingUserProfile, setViewingUserProfile] = useState<any | null>(null);
   const [selectedFrame, setSelectedFrame] = useState('none');
   const [selectedBanner, setSelectedBanner] = useState('default');
+  const [myCoins, setMyCoins] = useState(0);
+  const [myInventory, setMyInventory] = useState<string[]>([]);
 
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const serverIconInputRef = useRef<HTMLInputElement>(null);
@@ -276,9 +275,11 @@ export default function EcoTalkApp() {
     const onVoiceUpdate = ({ roomId, users }: any) => { setVoiceStates((prev) => { const key = Number(roomId); if (JSON.stringify(prev[key]) === JSON.stringify(users)) return prev; return { ...prev, [key]: users }; }); };
     const onMsgUpdated = (u: any) => setMessages((p) => p.map((m) => (m.id === u.id ? u : m))); const onMsgDeleted = (id: number) => setMessages((p) => p.filter((m) => m.id !== id));
     const onTyping = (id: number | null | undefined) => { const me = currentUserRef.current?.id; if (!id || id === me) return; setTypingUsers((p) => Array.from(new Set([...p, id]))); }; const onStopTyping = (id: number | null | undefined) => { if (!id) return; setTypingUsers((p) => p.filter((x) => x !== id)); };
+    const onBalanceUpdate = (coins: number) => { setMyCoins(coins); };
+    
     const onConnect = () => { if (currentUserRef.current?.id) { socket.emit("auth_user", currentUserRef.current.id); } };
-    socket.on("connect", onConnect); socket.on("receive_message", onReceiveMessage); socket.on("load_history", onLoadHistory); socket.on("new_notification", onNewNotif); socket.on("friend_added", onFriendAdded); socket.on("friend_removed", onFriendRemoved); socket.on("user_status_changed", onUserStatus); socket.on("voice_room_update", onVoiceUpdate); socket.on("message_updated", onMsgUpdated); socket.on("message_deleted", onMsgDeleted); socket.on("user_typing", onTyping); socket.on("user_stop_typing", onStopTyping);
-    return () => { socket.off("connect", onConnect); socket.off("receive_message", onReceiveMessage); socket.off("load_history", onLoadHistory); socket.off("new_notification", onNewNotif); socket.off("friend_added", onFriendAdded); socket.off("friend_removed", onFriendRemoved); socket.off("user_status_changed", onUserStatus); socket.off("voice_room_update", onVoiceUpdate); socket.off("message_updated", onMsgUpdated); socket.off("message_deleted", onMsgDeleted); socket.off("user_typing", onTyping); socket.off("user_stop_typing", onStopTyping); };
+    socket.on("connect", onConnect); socket.on("receive_message", onReceiveMessage); socket.on("load_history", onLoadHistory); socket.on("new_notification", onNewNotif); socket.on("friend_added", onFriendAdded); socket.on("friend_removed", onFriendRemoved); socket.on("user_status_changed", onUserStatus); socket.on("voice_room_update", onVoiceUpdate); socket.on("message_updated", onMsgUpdated); socket.on("message_deleted", onMsgDeleted); socket.on("user_typing", onTyping); socket.on("user_stop_typing", onStopTyping); socket.on("balance_update", onBalanceUpdate);
+    return () => { socket.off("connect", onConnect); socket.off("receive_message", onReceiveMessage); socket.off("load_history", onLoadHistory); socket.off("new_notification", onNewNotif); socket.off("friend_added", onFriendAdded); socket.off("friend_removed", onFriendRemoved); socket.off("user_status_changed", onUserStatus); socket.off("voice_room_update", onVoiceUpdate); socket.off("message_updated", onMsgUpdated); socket.off("message_deleted", onMsgDeleted); socket.off("user_typing", onTyping); socket.off("user_stop_typing", onStopTyping); socket.off("balance_update", onBalanceUpdate); };
   }, [socket]);
 
   useEffect(() => {
@@ -296,7 +297,19 @@ export default function EcoTalkApp() {
   function createPeer(userToSignal: string, callerID: string, stream: MediaStream, s: Socket) { const peer = new Peer({ initiator: true, trickle: false, stream, config: peerConfig }); peer.on("signal", (signal) => { s.emit("sending_signal", { userToSignal, callerID, signal }); }); peer.on("connect", () => { try { peer.send(JSON.stringify({ type: 'mute-status', isMuted: isMuted })); } catch(e){} }); return peer; }
   function addPeer(incomingSignal: any, callerID: string, stream: MediaStream, s: Socket) { const peer = new Peer({ initiator: false, trickle: false, stream, config: peerConfig }); peer.on("signal", (signal) => { s.emit("returning_signal", { signal, callerID }); }); peer.on("connect", () => { try { peer.send(JSON.stringify({ type: 'mute-status', isMuted: isMuted })); } catch(e){} }); peer.signal(incomingSignal); return peer; }
 
-  const fetchUserData = async (t: string) => { const res = await fetch(`${SOCKET_URL}/api/me`, { headers: { Authorization: t } }); if (!res.ok) return; const d = await res.json(); setCurrentUser(d); setMyServers(d.servers?.map((s: any) => s.server) || []); setMyFriends(d.friendsList || []); setSelectedFrame(d.frame || 'none'); setSelectedBanner(d.banner || 'default'); socket.emit("auth_user", d.id); };
+  const fetchUserData = async (t: string) => { 
+      const res = await fetch(`${SOCKET_URL}/api/me`, { headers: { Authorization: t } }); 
+      if (!res.ok) return; 
+      const d = await res.json(); 
+      setCurrentUser(d); 
+      setMyCoins(d.coins || 0); 
+      try { setMyInventory(JSON.parse(d.inventory || '[]')); } catch { setMyInventory([]); }
+      setMyServers(d.servers?.map((s: any) => s.server) || []); 
+      setMyFriends(d.friendsList || []); 
+      setSelectedFrame(d.frame || 'none'); 
+      setSelectedBanner(d.banner || 'default'); 
+      socket.emit("auth_user", d.id); 
+  };
   const handleAuth = async () => { const res = await fetch(`${SOCKET_URL}/api/auth/${authMode}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(authInput), }); const data = await res.json(); if (res.ok) { localStorage.setItem("eco_token", data.token); setToken(data.token); playSound("join"); window.location.reload(); } else { alert(data.error); } };
   const handleLogout = () => { playSound("leave"); setTimeout(() => { localStorage.removeItem("eco_token"); window.location.reload(); }, 800); };
   const handleTyping = (e: React.ChangeEvent<HTMLInputElement>) => { setInputText(e.target.value); const me = currentUserRef.current; if (!me) return; const room = activeServerId ? `channel_${activeChannel?.id}` : activeDM ? `dm_${[me.id, activeDM.id].sort().join("_")}` : null; if (!room) return; const now = Date.now(); if (now - lastTypingTime.current > 2000) { socket.emit("typing", { room }); lastTypingTime.current = now; } if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current); typingTimeoutRef.current = setTimeout(() => { socket.emit("stop_typing", { room }); }, 3000); };
@@ -316,13 +329,23 @@ export default function EcoTalkApp() {
       if (res.ok) { 
           const updated = await res.json(); 
           setCurrentUser((prev: any) => ({ ...prev, ...updated })); 
-          // Update frame locally so we see it instantly
           setCurrentUser((prev: any) => ({ ...prev, frame: selectedFrame, banner: selectedBanner }));
-          // Update in member list locally for instant feedback
           setCurrentServerMembers(prev => prev.map(m => m.id === updated.id ? { ...m, ...updated } : m));
           setShowUserSettings(false); 
           alert("Updated!"); 
       } 
+  };
+  const buyItem = async (itemId: string) => {
+      const res = await fetch(`${SOCKET_URL}/api/shop/buy`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: token! }, body: JSON.stringify({ itemId }), });
+      if (res.ok) {
+          const d = await res.json();
+          setMyCoins(d.coins);
+          setMyInventory(d.inventory);
+          playSound("click");
+      } else {
+          const err = await res.json();
+          alert(err.error);
+      }
   };
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>, isUser: boolean) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onloadend = () => { if (isUser) setEditUserAvatar(reader.result as string); else setEditServerIcon(reader.result as string); }; reader.readAsDataURL(file); };
   const removeFriend = async (friendId: number) => { if (!token) return; if (!confirm("Remove?")) return; const res = await fetch(`${SOCKET_URL}/api/friends/${friendId}`, { method: "DELETE", headers: { Authorization: token }, }); if (res.ok) { setMyFriends((prev) => prev.filter((f) => f.id !== friendId)); if (activeDM?.id === friendId) setActiveDM(null); } };
@@ -527,12 +550,14 @@ export default function EcoTalkApp() {
                     <h2 className="text-xs font-bold text-[var(--text-secondary)] mb-2 px-2">USER SETTINGS</h2>
                     <button onClick={() => setSettingsTab('profile')} className={`text-left px-3 py-2 rounded text-sm font-medium flex items-center gap-2 transition-colors ${settingsTab==='profile' ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'}`}><User size={16}/> My Account</button>
                     <button onClick={() => setSettingsTab('appearance')} className={`text-left px-3 py-2 rounded text-sm font-medium flex items-center gap-2 transition-colors ${settingsTab==='appearance' ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'}`}><Palette size={16}/> Appearance</button>
+                    <button onClick={() => setSettingsTab('shop')} className={`text-left px-3 py-2 rounded text-sm font-medium flex items-center gap-2 transition-colors ${settingsTab==='shop' ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'}`}><ShoppingBag size={16}/> Shop</button>
                     <button onClick={() => setSettingsTab('audio')} className={`text-left px-3 py-2 rounded text-sm font-medium flex items-center gap-2 transition-colors ${settingsTab==='audio' ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'}`}><Speaker size={16}/> Audio & Video</button>
                     <button onClick={() => setSettingsTab('hotkeys')} className={`text-left px-3 py-2 rounded text-sm font-medium flex items-center gap-2 transition-colors ${settingsTab==='hotkeys' ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'}`}><Keyboard size={16}/> Hotkeys</button>
                     <div className="mt-auto pt-4 border-t border-[var(--border)]"><button onClick={closeSettings} className="w-full text-left px-3 py-2 rounded text-sm font-medium text-red-500 hover:bg-red-50 flex items-center gap-2"><LogOut size={16}/> Close Settings</button></div>
                 </div>
                 <div className="flex-1 bg-[var(--bg-primary)] p-8 overflow-y-auto text-[var(--text-primary)] relative">
                     <button onClick={closeSettings} className="absolute top-4 right-4 text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-2 rounded-full hover:bg-[var(--bg-tertiary)]"><X size={24}/></button>
+                    
                     {settingsTab === 'profile' && (
                         <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
                             <h2 className="text-xl font-bold mb-6">My Profile</h2>
@@ -551,15 +576,90 @@ export default function EcoTalkApp() {
                                     <p className="text-xs text-[var(--text-secondary)] font-medium">#{currentUser?.id.toString().padStart(4, '0')}</p>
                                 </div>
                             </div>
+                            
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div><label className="text-xs font-bold text-[var(--text-secondary)] block mb-2">AVATAR</label><button onClick={() => avatarInputRef.current?.click()} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-bold w-full transition-colors">Upload New Avatar</button><input type="file" ref={avatarInputRef} hidden accept="image/*" onChange={(e) => handleAvatarUpload(e, true)} /></div>
                                 <div><label className="text-xs font-bold text-[var(--text-secondary)] block mb-2">USERNAME</label><input className="w-full bg-[var(--bg-tertiary)] border border-[var(--border)] rounded p-2 text-sm outline-none focus:border-green-500" value={editUserName} onChange={e=>setEditUserName(e.target.value)}/></div>
                             </div>
-                            <div className="mt-6"><label className="text-xs font-bold text-[var(--text-secondary)] block mb-2 flex items-center"><Sparkles size={14} className="mr-1 text-yellow-500"/> PROFILE FRAME</label><div className="flex gap-2 overflow-x-auto pb-2">{AVAILABLE_FRAMES.map(frame => (<div key={frame.id} onClick={() => setSelectedFrame(frame.id)} className={`flex-shrink-0 w-16 h-16 rounded-xl border-2 cursor-pointer flex items-center justify-center bg-[var(--bg-tertiary)] transition-all ${selectedFrame === frame.id ? 'border-green-500 bg-green-50' : 'border-[var(--border)] hover:border-gray-400'}`}><div className={`w-10 h-10 rounded-full bg-gray-300 ${frame.css}`}></div></div>))}</div></div>
-                            <div className="mt-4"><label className="text-xs font-bold text-[var(--text-secondary)] block mb-2 flex items-center"><ImageIcon size={14} className="mr-1 text-blue-500"/> PROFILE BANNER</label><div className="flex gap-2 overflow-x-auto pb-2">{AVAILABLE_BANNERS.map(banner => (<div key={banner.id} onClick={() => setSelectedBanner(banner.id)} className={`flex-shrink-0 w-16 h-12 rounded-lg cursor-pointer transition-all border-2 ${banner.color} ${selectedBanner === banner.id ? 'border-white ring-2 ring-green-500' : 'border-transparent hover:opacity-80'}`}></div>))}</div></div>
+
+                            <div className="mt-6"><label className="text-xs font-bold text-[var(--text-secondary)] block mb-2 flex items-center"><Sparkles size={14} className="mr-1 text-yellow-500"/> PROFILE FRAME</label>
+                            <div className="flex gap-2 overflow-x-auto pb-2">
+                                {AVAILABLE_FRAMES.map(frame => {
+                                    const isOwned = frame.price === 0 || myInventory.includes(frame.id);
+                                    return (
+                                        <div key={frame.id} onClick={() => isOwned && setSelectedFrame(frame.id)} className={`flex-shrink-0 w-16 h-16 rounded-xl border-2 cursor-pointer flex items-center justify-center bg-[var(--bg-tertiary)] transition-all relative ${selectedFrame === frame.id ? 'border-green-500 bg-green-50' : 'border-[var(--border)] hover:border-gray-400'} ${!isOwned ? 'opacity-50 grayscale cursor-not-allowed' : ''}`}>
+                                            <div className={`w-10 h-10 rounded-full bg-gray-300 ${frame.css}`}></div>
+                                            {!isOwned && <div className="absolute inset-0 flex items-center justify-center bg-black/20 rounded-xl"><Lock size={16} className="text-white"/></div>}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            </div>
+
+                            <div className="mt-4"><label className="text-xs font-bold text-[var(--text-secondary)] block mb-2 flex items-center"><ImageIcon size={14} className="mr-1 text-blue-500"/> PROFILE BANNER</label>
+                            <div className="flex gap-2 overflow-x-auto pb-2">
+                                {AVAILABLE_BANNERS.map(banner => {
+                                    const isOwned = banner.price === 0 || myInventory.includes(banner.id);
+                                    return (
+                                        <div key={banner.id} onClick={() => isOwned && setSelectedBanner(banner.id)} className={`flex-shrink-0 w-16 h-12 rounded-lg cursor-pointer transition-all border-2 relative ${banner.color} ${selectedBanner === banner.id ? 'border-white ring-2 ring-green-500' : 'border-transparent hover:opacity-80'} ${!isOwned ? 'opacity-50 grayscale cursor-not-allowed' : ''}`}>
+                                            {!isOwned && <div className="absolute inset-0 flex items-center justify-center"><Lock size={16} className="text-white"/></div>}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            </div>
+
                             <div className="flex justify-end mt-6 pt-4 border-t border-[var(--border)]"><button onClick={updateUserProfile} className="bg-green-600 text-white px-6 py-2 rounded font-bold hover:bg-green-700 transition-colors shadow-lg shadow-green-500/30">Save Changes</button></div>
                         </div>
                     )}
+
+                    {settingsTab === 'shop' && (
+                        <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+                            <div className="flex justify-between items-center mb-6">
+                                <h2 className="text-xl font-bold flex items-center gap-2"><ShoppingBag className="text-purple-500"/> Item Shop</h2>
+                                <div className="bg-yellow-500 text-white px-4 py-1 rounded-full font-bold text-sm flex items-center gap-2 shadow-lg"><Coins size={16}/> {myCoins} Coins</div>
+                            </div>
+                            
+                            <h3 className="text-xs font-bold text-[var(--text-secondary)] mb-4 border-b border-[var(--border)] pb-2">PREMIUM FRAMES</h3>
+                            <div className="grid grid-cols-2 gap-4 mb-8">
+                                {AVAILABLE_FRAMES.filter(f => f.price > 0).map(item => {
+                                    const isOwned = myInventory.includes(item.id);
+                                    return (
+                                        <div key={item.id} className="bg-[var(--bg-tertiary)] border border-[var(--border)] p-4 rounded-xl flex items-center gap-4 relative overflow-hidden group">
+                                            <div className={`w-12 h-12 rounded-full bg-gray-300 flex-shrink-0 ${item.css}`}></div>
+                                            <div className="flex-1">
+                                                <div className="font-bold text-sm">{item.name}</div>
+                                                <div className="text-xs text-[var(--text-secondary)]">{item.price} Coins</div>
+                                            </div>
+                                            <button onClick={() => buyItem(item.id)} disabled={isOwned || myCoins < item.price} className={`px-3 py-1.5 rounded text-xs font-bold transition-all ${isOwned ? 'bg-gray-400 text-white' : (myCoins >= item.price ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-red-100 text-red-500 cursor-not-allowed')}`}>
+                                                {isOwned ? "Owned" : "Buy"}
+                                            </button>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+
+                            <h3 className="text-xs font-bold text-[var(--text-secondary)] mb-4 border-b border-[var(--border)] pb-2">PROFILE BANNERS</h3>
+                            <div className="grid grid-cols-2 gap-4">
+                                {AVAILABLE_BANNERS.filter(b => b.price > 0).map(item => {
+                                    const isOwned = myInventory.includes(item.id);
+                                    return (
+                                        <div key={item.id} className="bg-[var(--bg-tertiary)] border border-[var(--border)] p-4 rounded-xl flex items-center gap-4 relative overflow-hidden">
+                                            <div className={`w-12 h-8 rounded bg-gray-300 flex-shrink-0 ${item.color}`}></div>
+                                            <div className="flex-1">
+                                                <div className="font-bold text-sm">{item.name}</div>
+                                                <div className="text-xs text-[var(--text-secondary)]">{item.price} Coins</div>
+                                            </div>
+                                            <button onClick={() => buyItem(item.id)} disabled={isOwned || myCoins < item.price} className={`px-3 py-1.5 rounded text-xs font-bold transition-all ${isOwned ? 'bg-gray-400 text-white' : (myCoins >= item.price ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-red-100 text-red-500 cursor-not-allowed')}`}>
+                                                {isOwned ? "Owned" : "Buy"}
+                                            </button>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        </div>
+                    )}
+
                     {settingsTab === 'appearance' && (
                          <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
                              <h2 className="text-xl font-bold mb-6">Appearance</h2>
@@ -592,6 +692,11 @@ export default function EcoTalkApp() {
             </div>
           </div>
         )}
+        
+        {showCreateServer && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><div className="bg-white p-6 rounded-xl"><input className="border p-2 w-full mb-4" placeholder="Name" value={newServerName} onChange={e=>setNewServerName(e.target.value)}/><div className="flex justify-end gap-2"><button onClick={()=>setShowCreateServer(false)}>Cancel</button><button onClick={createServer} className="bg-green-600 text-white px-4 py-2 rounded">Create</button></div></div></div>}
+        {showCreateChannel && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><div className="bg-white p-6 rounded-xl"><input className="border p-2 w-full mb-4" placeholder="Name" value={newChannelName} onChange={e=>setNewChannelName(e.target.value)}/><div className="flex justify-end gap-2"><button onClick={()=>setShowCreateChannel(false)}>Cancel</button><button onClick={createChannel} className="bg-green-600 text-white px-4 py-2 rounded">Create</button></div></div></div>}
+        {showAddFriend && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><div className="bg-white p-6 rounded-xl"><input className="border p-2 w-full mb-4" placeholder="Username" value={friendName} onChange={e=>setFriendName(e.target.value)}/><div className="flex justify-end gap-2"><button onClick={()=>setShowAddFriend(false)}>Cancel</button><button onClick={addFriend} className="bg-green-600 text-white px-4 py-2 rounded">Send</button></div></div></div>}
+        {showInvite && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><div className="bg-white p-6 rounded-xl"><input className="border p-2 w-full mb-4" placeholder="Username" value={inviteUserName} onChange={e=>setInviteUserName(e.target.value)}/><div className="flex justify-end gap-2"><button onClick={()=>setShowInvite(false)}>Cancel</button><button onClick={inviteUser} className="bg-green-600 text-white px-4 py-2 rounded">Invite</button></div></div></div>}
         {viewingImage && (<div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setViewingImage(null)}><button className="absolute top-4 right-4 text-white/50 hover:text-white p-2 rounded-full hover:bg-white/10 transition-all" onClick={() => setViewingImage(null)}><X size={32}/></button><img src={viewingImage} className="max-w-full max-h-full rounded-md shadow-2xl object-contain cursor-zoom-out" onClick={(e) => e.stopPropagation()} /></div>)}
       </div>
     </div>
