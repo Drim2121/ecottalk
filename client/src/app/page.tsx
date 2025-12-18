@@ -12,7 +12,7 @@ import io, { Socket } from "socket.io-client";
 import Peer from "simple-peer";
 
 // ===== CONSTANTS =====
-const SOCKET_URL = "http://5.129.215.82:3001"; // Убедитесь, что тут ваш актуальный IP или домен
+const SOCKET_URL = "http://5.129.215.82:3001"; 
 
 // ===== COSMETICS DATA =====
 const AVAILABLE_FRAMES = [
@@ -25,7 +25,7 @@ const AVAILABLE_FRAMES = [
 ];
 
 const AVAILABLE_BANNERS = [
-  { id: 'default', color: '' }, // Без фона
+  { id: 'default', color: '' }, 
   { id: 'gray', color: 'bg-gray-600' },
   { id: 'blue', color: 'bg-blue-600' },
   { id: 'purple', color: 'bg-purple-600' },
@@ -79,20 +79,16 @@ const useProcessedStream = (rawStream: MediaStream | null, threshold: number, is
     return processedStream;
 };
 
-// --- UNIVERSAL AVATAR COMPONENT (FIXED RENDER) ---
+// --- UNIVERSAL AVATAR COMPONENT ---
 const AvatarWithFrame = ({ url, frameId, sizeClass = "w-10 h-10", isOnline = false, showStatus = true }: { url: string, frameId?: string, sizeClass?: string, isOnline?: boolean, showStatus?: boolean }) => {
     const frame = AVAILABLE_FRAMES.find(f => f.id === (frameId || 'none')) || AVAILABLE_FRAMES[0];
-    
-    // We remove "overflow-hidden" from the container so the frame (ring) can be seen outside
     return (
         <div className={`relative ${sizeClass} flex-shrink-0`}>
-            {/* Frame - Rendered absolutely over the image */}
+            {/* Frame Layer */}
             <div className={`absolute -inset-[3px] rounded-full ${frame.css} pointer-events-none z-10`}></div>
-            
-            {/* Image */}
+            {/* Image Layer */}
             <img src={url} className="w-full h-full rounded-full object-cover" alt="avatar" />
-            
-            {/* Status Dot */}
+            {/* Status Layer */}
             {showStatus && (
                 <div className={`absolute bottom-0 right-0 w-[28%] h-[28%] border-[2.5px] border-[var(--bg-primary)] rounded-full z-20 ${isOnline ? 'bg-green-500 shadow-sm' : 'bg-gray-500'}`}></div>
             )}
@@ -407,7 +403,16 @@ export default function EcoTalkApp() {
                 ))}
               </>
             ) : (
-               myFriends.map(f => <div key={f.id} onClick={()=>selectDM(f)} className={`flex items-center p-2 rounded cursor-pointer ${activeDM?.id===f.id?'bg-[var(--bg-tertiary)]':''}`}><div className="relative w-8 h-8 flex-shrink-0 mr-2"><AvatarWithFrame url={f.avatar} frameId={f.frame} sizeClass="w-full h-full" isOnline={f.status==='online'}/></div><div className="flex-1"><span className="block text-sm font-medium">{f.username}</span></div><Trash2 size={14} className="text-[var(--text-secondary)] hover:text-red-500" onClick={(e) => { e.stopPropagation(); removeFriend(f.id); }} /></div>)
+               // === DM LIST WITH FRAMES ===
+               myFriends.map(f => (
+                   <div key={f.id} onClick={()=>selectDM(f)} className={`flex items-center p-2 rounded cursor-pointer ${activeDM?.id===f.id?'bg-[var(--bg-tertiary)]':''}`}>
+                       <div className="relative w-8 h-8 flex-shrink-0 mr-2">
+                           <AvatarWithFrame url={f.avatar} frameId={f.frame} sizeClass="w-full h-full" isOnline={f.status==='online'}/>
+                       </div>
+                       <div className="flex-1"><span className="block text-sm font-medium">{f.username}</span></div>
+                       <Trash2 size={14} className="text-[var(--text-secondary)] hover:text-red-500" onClick={(e) => { e.stopPropagation(); removeFriend(f.id); }} />
+                   </div>
+               ))
             )}
           </div>
           {activeVoiceChannel && (
@@ -466,7 +471,7 @@ export default function EcoTalkApp() {
                     <div key={member.id} className={`flex items-center justify-between group p-2 mb-1 rounded cursor-pointer transition-colors hover:bg-[var(--bg-tertiary)] relative overflow-hidden`} onClick={() => handleUserClick(member)}>
                         {/* Member Background from Banner - MADE VISIBLE (opacity-40) */}
                         {member.banner && member.banner !== 'default' && (
-                            <div className={`absolute inset-0 opacity-40 pointer-events-none ${AVAILABLE_BANNERS.find(b=>b.id===member.banner)?.color}`}></div>
+                            <div className={`absolute inset-0 opacity-40 pointer-events-none z-0 ${AVAILABLE_BANNERS.find(b=>b.id===member.banner)?.color}`}></div>
                         )}
                         
                         <div className="flex items-center gap-3 relative z-10">
@@ -587,11 +592,6 @@ export default function EcoTalkApp() {
             </div>
           </div>
         )}
-        
-        {showCreateServer && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><div className="bg-white p-6 rounded-xl"><input className="border p-2 w-full mb-4" placeholder="Name" value={newServerName} onChange={e=>setNewServerName(e.target.value)}/><div className="flex justify-end gap-2"><button onClick={()=>setShowCreateServer(false)}>Cancel</button><button onClick={createServer} className="bg-green-600 text-white px-4 py-2 rounded">Create</button></div></div></div>}
-        {showCreateChannel && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><div className="bg-white p-6 rounded-xl"><input className="border p-2 w-full mb-4" placeholder="Name" value={newChannelName} onChange={e=>setNewChannelName(e.target.value)}/><div className="flex justify-end gap-2"><button onClick={()=>setShowCreateChannel(false)}>Cancel</button><button onClick={createChannel} className="bg-green-600 text-white px-4 py-2 rounded">Create</button></div></div></div>}
-        {showAddFriend && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><div className="bg-white p-6 rounded-xl"><input className="border p-2 w-full mb-4" placeholder="Username" value={friendName} onChange={e=>setFriendName(e.target.value)}/><div className="flex justify-end gap-2"><button onClick={()=>setShowAddFriend(false)}>Cancel</button><button onClick={addFriend} className="bg-green-600 text-white px-4 py-2 rounded">Send</button></div></div></div>}
-        {showInvite && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><div className="bg-white p-6 rounded-xl"><input className="border p-2 w-full mb-4" placeholder="Username" value={inviteUserName} onChange={e=>setInviteUserName(e.target.value)}/><div className="flex justify-end gap-2"><button onClick={()=>setShowInvite(false)}>Cancel</button><button onClick={inviteUser} className="bg-green-600 text-white px-4 py-2 rounded">Invite</button></div></div></div>}
         {viewingImage && (<div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setViewingImage(null)}><button className="absolute top-4 right-4 text-white/50 hover:text-white p-2 rounded-full hover:bg-white/10 transition-all" onClick={() => setViewingImage(null)}><X size={32}/></button><img src={viewingImage} className="max-w-full max-h-full rounded-md shadow-2xl object-contain cursor-zoom-out" onClick={(e) => e.stopPropagation()} /></div>)}
       </div>
     </div>
