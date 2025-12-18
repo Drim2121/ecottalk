@@ -5,7 +5,8 @@ import {
   Hash, Send, Plus, MessageSquare, LogOut, Paperclip, UserPlus, PhoneOff, Bell,
   Check, X, Settings, Trash2, UserMinus, Users, Volume2, Mic, MicOff, Smile, Edit2,
   Palette, Zap, ZapOff, Video, VideoOff, Monitor, MonitorOff, Volume1, VolumeX, Camera,
-  Maximize, Minimize, Keyboard, Sliders, Volume, Headphones, HeadphoneOff, WifiOff, UploadCloud
+  Maximize, Minimize, Keyboard, Sliders, Volume, Headphones, HeadphoneOff, WifiOff, UploadCloud,
+  User, Speaker
 } from "lucide-react";
 import io, { Socket } from "socket.io-client";
 import Peer from "simple-peer";
@@ -24,14 +25,20 @@ const SOUNDS = {
 
 // ===== THEMES =====
 const THEME_STYLES = `
-  :root[data-theme="minimal"] { --bg-primary: #ffffff; --bg-secondary: #f9fafb; --bg-tertiary: #f3f4f6; --text-primary: #111827; --text-secondary: #6b7280; --accent: #10b981; --border: #e5e7eb; --font-family: 'Segoe UI', sans-serif; }
-  :root[data-theme="neon"] { --bg-primary: #0f172a; --bg-secondary: #1e293b; --bg-tertiary: #334155; --text-primary: #f8fafc; --text-secondary: #94a3b8; --accent: #38bdf8; --border: #1e293b; --font-family: 'Courier New', monospace; }
-  :root[data-theme="vintage"] { --bg-primary: #fffbeb; --bg-secondary: #fef3c7; --bg-tertiary: #fde68a; --text-primary: #78350f; --text-secondary: #92400e; --accent: #d97706; --border: #fcd34d; --font-family: 'Georgia', serif; }
+  :root[data-theme="minimal"] { --bg-primary: #ffffff; --bg-secondary: #f9fafb; --bg-tertiary: #f3f4f6; --text-primary: #111827; --text-secondary: #6b7280; --accent: #10b981; --border: #e5e7eb; --font-family: 'Segoe UI', sans-serif; --modal-bg: #ffffff; --sidebar-bg: #f3f4f6; }
+  :root[data-theme="neon"] { --bg-primary: #0f172a; --bg-secondary: #1e293b; --bg-tertiary: #334155; --text-primary: #f8fafc; --text-secondary: #94a3b8; --accent: #38bdf8; --border: #1e293b; --font-family: 'Courier New', monospace; --modal-bg: #0f172a; --sidebar-bg: #1e293b; }
+  :root[data-theme="vintage"] { --bg-primary: #fffbeb; --bg-secondary: #fef3c7; --bg-tertiary: #fde68a; --text-primary: #78350f; --text-secondary: #92400e; --accent: #d97706; --border: #fcd34d; --font-family: 'Georgia', serif; --modal-bg: #fffbeb; --sidebar-bg: #fef3c7; }
   body, div, input, textarea, video { transition: background-color 0.3s ease, color 0.3s ease; }
   video::-webkit-media-controls { display:none !important; }
   input[type=range] { -webkit-appearance: none; background: transparent; }
   input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 14px; width: 14px; border-radius: 50%; background: white; cursor: pointer; margin-top: -5px; box-shadow: 0 0 2px rgba(0,0,0,0.5); }
   input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; cursor: pointer; background: rgba(255,255,255,0.3); border-radius: 2px; }
+  
+  /* Custom Scrollbar */
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(156, 163, 175, 0.5); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(156, 163, 175, 0.8); }
 `;
 
 let _socket: Socket | null = null;
@@ -315,6 +322,7 @@ export default function EcoTalkApp() {
   const [editServerIcon, setEditServerIcon] = useState("");
   const [editingChannel, setEditingChannel] = useState<any>(null);
   const [showUserSettings, setShowUserSettings] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<'profile' | 'appearance' | 'audio' | 'hotkeys'>('profile');
   const [editUserName, setEditUserName] = useState("");
   const [editUserAvatar, setEditUserAvatar] = useState("");
   const avatarInputRef = useRef<HTMLInputElement>(null);
@@ -353,7 +361,7 @@ export default function EcoTalkApp() {
   useEffect(() => { const savedTheme = localStorage.getItem("eco_theme"); if (savedTheme) { setTheme(savedTheme); document.documentElement.setAttribute('data-theme', savedTheme); } }, []);
   const playSound = (type: 'msg' | 'join' | 'leave' | 'click') => { if (soundEnabled) playSoundEffect(type); };
   
-  // === FIX: LAST SEEN FORMAT (DATE + TIME) ===
+  // === DATE FORMATTING ===
   const formatLastSeen = (d: string) => {
     if (!d) return "Offline";
     const date = new Date(d);
@@ -364,7 +372,7 @@ export default function EcoTalkApp() {
     const hours = Math.floor(diff / 60);
     if (hours < 24) return `${hours}h ago`;
 
-    // Форматирование: 15.12.2025 20:42
+    // 15.12.2025 20:42
     const day = String(date.getDate()).padStart(2, '0');
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const year = date.getFullYear();
@@ -428,7 +436,7 @@ export default function EcoTalkApp() {
     }
   }, [isMuted, processedStream]);
 
-  // === DRAG & DROP HANDLERS (FIXED) ===
+  // === DRAG & DROP HANDLERS ===
   const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); };
   const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(false); };
   const handleDrop = (e: React.DragEvent) => {
@@ -506,7 +514,7 @@ export default function EcoTalkApp() {
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [socket]);
 
-  // === SOCKET EVENT LISTENERS (FIXED ONLINE/OFFLINE STATUS) ===
+  // === SOCKET EVENT LISTENERS ===
   useEffect(() => {
     const onReceiveMessage = (msg: any) => {
       setMessages((p) => [...p, msg]); if (msg.userId !== currentUserRef.current?.id) playSound("msg"); 
@@ -517,7 +525,7 @@ export default function EcoTalkApp() {
     const onFriendAdded = (f: any) => { setMyFriends((p) => (p.find((x) => x.id === f.id) ? p : [...p, f])); if (tokenRef.current) fetchUserData(tokenRef.current); };
     const onFriendRemoved = (id: number) => { setMyFriends((p) => p.filter((f) => f.id !== id)); setActiveDM((prev: any) => (prev?.id === id ? null : prev)); };
     
-    // Fix: Обновляем статус везде (друзья, участники сервера, активный ЛС)
+    // Fix: Обновляем статус везде
     const onUserStatus = ({ userId, status, lastSeen }: any) => { 
         setMyFriends((p) => p.map((f) => (f.id === userId ? { ...f, status, lastSeen } : f))); 
         setCurrentServerMembers((p) => p.map((m) => (m.id === userId ? { ...m, status, lastSeen } : m))); 
@@ -532,7 +540,7 @@ export default function EcoTalkApp() {
     const onTyping = (id: number | null | undefined) => { const me = currentUserRef.current?.id; if (!id || id === me) return; setTypingUsers((p) => Array.from(new Set([...p, id]))); };
     const onStopTyping = (id: number | null | undefined) => { if (!id) return; setTypingUsers((p) => p.filter((x) => x !== id)); };
 
-    // FIX: Re-authenticate on reconnect to fix phantom online status
+    // FIX: Re-authenticate on reconnect
     const onConnect = () => {
         if (currentUserRef.current?.id) {
             socket.emit("auth_user", currentUserRef.current.id);
@@ -854,29 +862,129 @@ export default function EcoTalkApp() {
         {activeServerId && showMembersPanel && (<div className="w-60 bg-[var(--bg-secondary)] border-l border-[var(--border)] p-3 hidden lg:block overflow-y-auto"><h3 className="text-xs font-bold text-[var(--text-secondary)] mb-2">MEMBERS — {currentServerMembers.length}</h3>{currentServerMembers.map(member => (<div key={member.id} className="flex items-center justify-between group p-2 hover:bg-[var(--bg-tertiary)] rounded cursor-pointer" onClick={() => selectDM(member)}><div className="flex items-center gap-2"><div className="relative w-8 h-8 flex-shrink-0"><img src={member.avatar} className="rounded-full w-full h-full object-cover"/><div className={`absolute bottom-0 right-0 w-2.5 h-2.5 border-2 border-white rounded-full ${member.status==='online'?'bg-green-500':'bg-gray-400'}`}></div></div><div className="flex flex-col"><span className={`font-medium text-sm leading-tight ${member.id === activeServerData?.ownerId ? 'text-yellow-600' : 'text-[var(--text-primary)]'}`}>{member.username}</span></div></div></div>))}</div>)}
         {showServerSettings && <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50"><div className="bg-white p-6 rounded-xl w-96 shadow-2xl"><div className="flex items-center justify-between mb-4"><h3 className="font-bold text-xl text-gray-900">Server Settings</h3><button className="text-sm text-gray-500" onClick={()=>setShowServerSettings(false)}>Close</button></div><label className="text-xs font-bold text-gray-500">ICON</label><div className="flex items-center gap-4 mb-4"><div className="w-16 h-16 rounded-xl bg-gray-200 overflow-hidden flex items-center justify-center">{editServerIcon ? <img src={editServerIcon} className="w-full h-full object-cover"/> : <span className="text-2xl font-bold text-gray-400">{editServerName?.[0]}</span>}</div><input type="file" ref={serverIconInputRef} hidden accept="image/*" onChange={(e)=>handleAvatarUpload(e, false)}/><button onClick={()=>serverIconInputRef.current?.click()} className="text-sm text-green-600 hover:underline">Change</button></div><label className="text-xs font-bold text-gray-500">NAME</label><input className="w-full border p-2 rounded mb-4" value={editServerName} onChange={e=>setEditServerName(e.target.value)}/><label className="text-xs font-bold text-gray-500">DESCRIPTION</label><textarea className="w-full border p-2 rounded mb-6 h-20 resize-none" value={editServerDesc} onChange={e=>setEditServerDesc(e.target.value)}/><div className="flex justify-between gap-2"><button onClick={openServerSettings} className="text-sm text-gray-500 hover:underline">Refresh</button><div className="flex gap-2"><button onClick={deleteServer} className="px-4 py-2 text-white bg-red-600 rounded">Delete</button><button onClick={updateServer} className="px-4 py-2 text-white bg-green-600 rounded">Save</button></div></div></div></div>}
         {editingChannel && <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50"><div className="bg-white p-6 rounded-xl w-80 shadow-2xl"><h3 className="font-bold text-xl mb-4 text-gray-900">Edit Channel</h3><input className="w-full border p-2 rounded mb-4" value={newChannelName} onChange={e=>setNewChannelName(e.target.value)}/><div className="flex justify-between"><button onClick={deleteChannel} className="text-red-500 text-sm hover:underline flex items-center"><Trash2 size={14} className="mr-1"/> Delete</button><div className="flex gap-2"><button onClick={()=>setEditingChannel(null)}>Cancel</button><button onClick={updateChannel} className="bg-green-600 text-white px-4 py-2 rounded">Save</button></div></div></div></div>}
+        
+        {/* ===== NEW SETTINGS MODAL ===== */}
         {showUserSettings && (
-          <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-[var(--bg-primary)] p-6 rounded-xl w-96 shadow-2xl overflow-y-auto max-h-[80vh] border border-[var(--border)] text-[var(--text-primary)]">
-              <h3 className="font-bold text-xl mb-4">Profile</h3>
-              <div className="flex flex-col items-center mb-6">
-                <div className="w-24 h-24 rounded-full bg-gray-200 overflow-hidden mb-2 relative group cursor-pointer" onClick={() => avatarInputRef.current?.click()}>
-                   <img src={currentUser?.avatar} className="w-full h-full object-cover"/>
-                   <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-full"><Camera className="text-white"/></div>
+          <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-[60] backdrop-blur-sm">
+            <div className="bg-[var(--modal-bg)] w-[800px] h-[550px] rounded-xl shadow-2xl flex overflow-hidden border border-[var(--border)] animate-in zoom-in-95 duration-200">
+                {/* SIDEBAR */}
+                <div className="w-60 bg-[var(--sidebar-bg)] p-4 border-r border-[var(--border)] flex flex-col gap-1">
+                    <h2 className="text-xs font-bold text-[var(--text-secondary)] mb-2 px-2">USER SETTINGS</h2>
+                    <button onClick={() => setSettingsTab('profile')} className={`text-left px-3 py-2 rounded text-sm font-medium flex items-center gap-2 transition-colors ${settingsTab==='profile' ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'}`}><User size={16}/> My Account</button>
+                    <button onClick={() => setSettingsTab('appearance')} className={`text-left px-3 py-2 rounded text-sm font-medium flex items-center gap-2 transition-colors ${settingsTab==='appearance' ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'}`}><Palette size={16}/> Appearance</button>
+                    <button onClick={() => setSettingsTab('audio')} className={`text-left px-3 py-2 rounded text-sm font-medium flex items-center gap-2 transition-colors ${settingsTab==='audio' ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'}`}><Speaker size={16}/> Audio & Video</button>
+                    <button onClick={() => setSettingsTab('hotkeys')} className={`text-left px-3 py-2 rounded text-sm font-medium flex items-center gap-2 transition-colors ${settingsTab==='hotkeys' ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'}`}><Keyboard size={16}/> Hotkeys</button>
+                    <div className="mt-auto pt-4 border-t border-[var(--border)]">
+                        <button onClick={closeSettings} className="w-full text-left px-3 py-2 rounded text-sm font-medium text-red-500 hover:bg-red-50 flex items-center gap-2"><LogOut size={16}/> Close Settings</button>
+                    </div>
                 </div>
-                <input type="file" ref={avatarInputRef} hidden accept="image/*" onChange={(e) => handleAvatarUpload(e, true)} />
-                <input className="text-center font-bold text-lg border-b border-transparent hover:border-gray-300 focus:border-green-500 outline-none bg-transparent" value={editUserName} onChange={e=>setEditUserName(e.target.value)}/>
-              </div>
-              <div className="mb-6"><h4 className="text-sm font-bold text-[var(--text-secondary)] mb-2 border-b border-[var(--border)] pb-1 flex items-center"><Palette size={14} className="mr-1"/> THEME</h4><div className="flex gap-2 mt-2"><button onClick={() => setTheme('minimal')} className={`flex-1 py-1 text-xs font-bold rounded border ${theme==='minimal'?'bg-gray-200 text-black border-black':'border-gray-300 text-gray-500'}`}>Minimal</button><button onClick={() => setTheme('neon')} className={`flex-1 py-1 text-xs font-bold rounded border ${theme==='neon'?'bg-slate-900 text-cyan-400 border-cyan-400':'border-gray-300 text-gray-500'}`}>Neon</button><button onClick={() => setTheme('vintage')} className={`flex-1 py-1 text-xs font-bold rounded border ${theme==='vintage'?'bg-amber-100 text-amber-900 border-amber-900':'border-gray-300 text-gray-500'}`}>Vintage</button></div></div>
-              <div className="mb-6"><h4 className="text-sm font-bold text-[var(--text-secondary)] mb-2 border-b border-[var(--border)] pb-1">AUDIO SETTINGS</h4><label className="text-xs font-bold text-[var(--text-secondary)] block mb-1">MICROPHONE</label><select className="w-full p-2 border rounded mb-3 text-sm bg-[var(--bg-tertiary)]" value={selectedMicId} onChange={(e) => saveAudioSettings(e.target.value, selectedSpeakerId, enableNoiseSuppression, soundEnabled, voiceThreshold)}><option value="">Default</option>{audioInputs.map(d => <option key={d.deviceId} value={d.deviceId}>{d.label || `Microphone ${d.deviceId}`}</option>)}</select><label className="text-xs font-bold text-[var(--text-secondary)] block mb-1">SPEAKERS</label><select className="w-full p-2 border rounded text-sm bg-[var(--bg-tertiary)] mb-3" value={selectedSpeakerId} onChange={(e) => saveAudioSettings(selectedMicId, e.target.value, enableNoiseSuppression, soundEnabled, voiceThreshold)}><option value="">Default</option>{audioOutputs.map(d => <option key={d.deviceId} value={d.deviceId}>{d.label || `Speaker ${d.deviceId}`}</option>)}</select>
-              <div className="flex items-center justify-between p-2 border rounded bg-[var(--bg-tertiary)] cursor-pointer mb-2" onClick={() => saveAudioSettings(selectedMicId, selectedSpeakerId, !enableNoiseSuppression, soundEnabled, voiceThreshold)}><div className="flex items-center text-sm font-bold">{enableNoiseSuppression && <Zap size={16} className="text-yellow-500 mr-2"/>}{!enableNoiseSuppression && <ZapOff size={16} className="text-gray-400 mr-2"/>} Noise Suppression (AI)</div><div className={`w-8 h-4 rounded-full relative transition-colors ${enableNoiseSuppression ? 'bg-green-500' : 'bg-gray-400'}`}><div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${enableNoiseSuppression ? 'left-4.5' : 'left-0.5'}`}></div></div></div>
-              <div className="mb-2"><div className="flex justify-between items-center mb-1"><label className="text-xs font-bold text-[var(--text-secondary)] flex items-center"><Sliders size={12} className="mr-1"/> VOICE ACTIVATION LEVEL</label><span className="text-xs font-mono">{voiceThreshold}%</span></div><input type="range" min="0" max="100" value={voiceThreshold} onChange={(e) => saveAudioSettings(selectedMicId, selectedSpeakerId, enableNoiseSuppression, soundEnabled, Number(e.target.value))} className="w-full h-2 bg-[var(--border)] rounded-lg appearance-none cursor-pointer"/></div>
-              <div className="flex items-center justify-between p-2 border rounded bg-[var(--bg-tertiary)] cursor-pointer" onClick={() => saveAudioSettings(selectedMicId, selectedSpeakerId, enableNoiseSuppression, !soundEnabled, voiceThreshold)}><div className="flex items-center text-sm font-bold">{soundEnabled && <Volume2 size={16} className="text-blue-500 mr-2"/>}{!soundEnabled && <VolumeX size={16} className="text-gray-400 mr-2"/>} Sound Effects</div><div className={`w-8 h-4 rounded-full relative transition-colors ${soundEnabled ? 'bg-blue-500' : 'bg-gray-400'}`}><div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${soundEnabled ? 'left-4.5' : 'left-0.5'}`}></div></div></div>
-              <div className="mt-4 border-t border-[var(--border)] pt-4"><h4 className="text-sm font-bold text-[var(--text-secondary)] mb-2 flex items-center"><Keyboard size={14} className="mr-1"/> HOTKEYS</h4><div className="flex items-center justify-between p-2 border rounded bg-[var(--bg-tertiary)]"><span className="text-sm font-bold">Toggle Mute</span><button onClick={() => setIsRecordingKey(true)} className={`px-3 py-1 rounded text-xs font-bold transition-all ${isRecordingKey ? 'bg-red-500 text-white animate-pulse' : (muteKey ? 'bg-blue-600 text-white' : 'bg-gray-400 text-white')}`}>{isRecordingKey ? "Press any key..." : (muteKey || "Click to Bind")}</button></div></div>
-              <div className="mt-4 flex items-center gap-2"><button onClick={toggleMicTest} className={`flex-1 py-2 rounded text-sm font-bold transition-colors ${isTestingMic ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-gray-100 text-gray-900 hover:bg-gray-200'}`}>{isTestingMic ? "Stop Test" : "Check Microphone"}</button><audio ref={testAudioRef} hidden />{isTestingMic && <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse"></div>}</div></div>
-              <div className="flex justify-end gap-2"><button onClick={closeSettings} className="px-4 py-2 text-[var(--text-secondary)]">Cancel</button><button onClick={updateUserProfile} className="bg-green-600 text-white px-4 py-2 rounded font-bold">Save</button></div>
+
+                {/* CONTENT AREA */}
+                <div className="flex-1 bg-[var(--bg-primary)] p-8 overflow-y-auto text-[var(--text-primary)] relative">
+                    <button onClick={closeSettings} className="absolute top-4 right-4 text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-2 rounded-full hover:bg-[var(--bg-tertiary)]"><X size={24}/></button>
+
+                    {settingsTab === 'profile' && (
+                        <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+                            <h2 className="text-xl font-bold mb-6">My Profile</h2>
+                            <div className="bg-[var(--bg-tertiary)] p-4 rounded-xl flex items-center gap-6 mb-6">
+                                <div className="relative group cursor-pointer" onClick={() => avatarInputRef.current?.click()}>
+                                    <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-[var(--bg-primary)]">
+                                        <img src={currentUser?.avatar} className="w-full h-full object-cover"/>
+                                    </div>
+                                    <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><Camera className="text-white"/></div>
+                                </div>
+                                <input type="file" ref={avatarInputRef} hidden accept="image/*" onChange={(e) => handleAvatarUpload(e, true)} />
+                                <div className="flex-1">
+                                    <div className="flex justify-between items-center mb-2"><label className="text-xs font-bold text-[var(--text-secondary)]">USERNAME</label></div>
+                                    <input className="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded p-2 text-sm font-bold outline-none focus:border-green-500" value={editUserName} onChange={e=>setEditUserName(e.target.value)}/>
+                                </div>
+                            </div>
+                            <div className="flex justify-end">
+                                <button onClick={updateUserProfile} className="bg-green-600 text-white px-6 py-2 rounded font-bold hover:bg-green-700 transition-colors">Save Changes</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {settingsTab === 'appearance' && (
+                         <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+                             <h2 className="text-xl font-bold mb-6">Appearance</h2>
+                             <div className="space-y-4">
+                                 <div onClick={() => setTheme('minimal')} className={`cursor-pointer border-2 rounded-xl p-4 flex items-center gap-4 transition-all ${theme==='minimal' ? 'border-green-500 bg-green-50/50' : 'border-[var(--border)] hover:border-gray-400'}`}>
+                                     <div className="w-12 h-12 bg-white rounded-full border border-gray-200 shadow-sm flex items-center justify-center">Aa</div>
+                                     <div><div className="font-bold text-gray-900">Minimal (Light)</div><div className="text-xs text-gray-500">Clean and bright interface</div></div>
+                                     {theme==='minimal' && <Check className="ml-auto text-green-600"/>}
+                                 </div>
+                                 <div onClick={() => setTheme('neon')} className={`cursor-pointer border-2 rounded-xl p-4 flex items-center gap-4 transition-all ${theme==='neon' ? 'border-cyan-500 bg-slate-900/10' : 'border-[var(--border)] hover:border-gray-400'}`}>
+                                     <div className="w-12 h-12 bg-slate-900 rounded-full border border-cyan-500 shadow-sm flex items-center justify-center text-cyan-400">Aa</div>
+                                     <div><div className="font-bold text-[var(--text-primary)]">Neon (Dark)</div><div className="text-xs text-[var(--text-secondary)]">High contrast for gamers</div></div>
+                                     {theme==='neon' && <Check className="ml-auto text-cyan-500"/>}
+                                 </div>
+                                 <div onClick={() => setTheme('vintage')} className={`cursor-pointer border-2 rounded-xl p-4 flex items-center gap-4 transition-all ${theme==='vintage' ? 'border-amber-600 bg-amber-50' : 'border-[var(--border)] hover:border-gray-400'}`}>
+                                     <div className="w-12 h-12 bg-[#fffbeb] rounded-full border border-amber-900 shadow-sm flex items-center justify-center text-amber-900 font-serif">Aa</div>
+                                     <div><div className="font-bold text-amber-900">Vintage</div><div className="text-xs text-amber-700">Warm and cozy serif style</div></div>
+                                     {theme==='vintage' && <Check className="ml-auto text-amber-600"/>}
+                                 </div>
+                             </div>
+                         </div>
+                    )}
+
+                    {settingsTab === 'audio' && (
+                        <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+                            <h2 className="text-xl font-bold mb-6">Voice & Video</h2>
+                            <div className="space-y-6">
+                                <div>
+                                    <label className="text-xs font-bold text-[var(--text-secondary)] block mb-2">INPUT DEVICE</label>
+                                    <select className="w-full p-2.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border)] text-sm outline-none" value={selectedMicId} onChange={(e) => saveAudioSettings(e.target.value, selectedSpeakerId, enableNoiseSuppression, soundEnabled, voiceThreshold)}><option value="">Default System Microphone</option>{audioInputs.map(d => <option key={d.deviceId} value={d.deviceId}>{d.label || `Microphone ${d.deviceId}`}</option>)}</select>
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-[var(--text-secondary)] block mb-2">OUTPUT DEVICE</label>
+                                    <select className="w-full p-2.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border)] text-sm outline-none" value={selectedSpeakerId} onChange={(e) => saveAudioSettings(selectedMicId, e.target.value, enableNoiseSuppression, soundEnabled, voiceThreshold)}><option value="">Default System Speakers</option>{audioOutputs.map(d => <option key={d.deviceId} value={d.deviceId}>{d.label || `Speaker ${d.deviceId}`}</option>)}</select>
+                                </div>
+                                <div className="border-t border-[var(--border)] pt-4">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <div><div className="font-bold text-sm">Mic Test</div><div className="text-xs text-[var(--text-secondary)]">Check how you sound to others</div></div>
+                                        <button onClick={toggleMicTest} className={`px-4 py-1.5 rounded text-sm font-bold transition-colors ${isTestingMic ? 'bg-red-500 text-white' : 'bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-gray-300'}`}>{isTestingMic ? "Stop Testing" : "Let's Check"}</button>
+                                        <audio ref={testAudioRef} hidden />
+                                    </div>
+                                    {isTestingMic && <div className="w-full bg-[var(--bg-tertiary)] h-2 rounded-full overflow-hidden"><div className="h-full bg-green-500 animate-[pulse_0.5s_infinite]"></div></div>}
+                                </div>
+                                <div className="border-t border-[var(--border)] pt-4 space-y-4">
+                                     <div className="flex items-center justify-between">
+                                         <div><div className="font-bold text-sm flex items-center gap-2">{enableNoiseSuppression ? <Zap size={14} className="text-yellow-500"/> : <ZapOff size={14}/>} AI Noise Suppression</div><div className="text-xs text-[var(--text-secondary)]">Remove background noise</div></div>
+                                         <div onClick={() => saveAudioSettings(selectedMicId, selectedSpeakerId, !enableNoiseSuppression, soundEnabled, voiceThreshold)} className={`w-10 h-5 rounded-full relative cursor-pointer transition-colors ${enableNoiseSuppression ? 'bg-green-500' : 'bg-gray-400'}`}><div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${enableNoiseSuppression ? 'left-6' : 'left-1'}`}></div></div>
+                                     </div>
+                                     <div className="flex items-center justify-between">
+                                         <div><div className="font-bold text-sm flex items-center gap-2">{soundEnabled ? <Volume1 size={14} className="text-blue-500"/> : <VolumeX size={14}/>} Sound Effects</div><div className="text-xs text-[var(--text-secondary)]">Play sounds for messages and joining</div></div>
+                                         <div onClick={() => saveAudioSettings(selectedMicId, selectedSpeakerId, enableNoiseSuppression, !soundEnabled, voiceThreshold)} className={`w-10 h-5 rounded-full relative cursor-pointer transition-colors ${soundEnabled ? 'bg-green-500' : 'bg-gray-400'}`}><div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${soundEnabled ? 'left-6' : 'left-1'}`}></div></div>
+                                     </div>
+                                </div>
+                                <div className="border-t border-[var(--border)] pt-4">
+                                     <div className="flex justify-between items-center mb-2"><label className="text-xs font-bold text-[var(--text-secondary)]">VOICE SENSITIVITY</label><span className="text-xs font-mono bg-[var(--bg-tertiary)] px-2 py-0.5 rounded">{voiceThreshold}%</span></div>
+                                     <input type="range" min="0" max="100" value={voiceThreshold} onChange={(e) => saveAudioSettings(selectedMicId, selectedSpeakerId, enableNoiseSuppression, soundEnabled, Number(e.target.value))} className="w-full h-2 bg-[var(--bg-tertiary)] rounded-lg appearance-none cursor-pointer accent-green-500"/>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {settingsTab === 'hotkeys' && (
+                        <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+                             <h2 className="text-xl font-bold mb-6">Keybinds</h2>
+                             <div className="bg-[var(--bg-tertiary)] rounded-xl p-4 border border-[var(--border)] flex items-center justify-between">
+                                 <div>
+                                     <div className="font-bold text-sm">Toggle Mute</div>
+                                     <div className="text-xs text-[var(--text-secondary)]">Push to mute/unmute microphone</div>
+                                 </div>
+                                 <button onClick={() => setIsRecordingKey(true)} className={`min-w-[100px] px-4 py-2 rounded border-2 font-mono text-sm font-bold transition-all ${isRecordingKey ? 'border-red-500 text-red-500 bg-red-50' : (muteKey ? 'border-gray-400 text-[var(--text-primary)] bg-white' : 'border-dashed border-gray-400 text-gray-400')}`}>
+                                     {isRecordingKey ? "Press Key..." : (muteKey || "NONE")}
+                                 </button>
+                             </div>
+                        </div>
+                    )}
+                </div>
             </div>
           </div>
         )}
+        
         {showCreateServer && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><div className="bg-white p-6 rounded-xl"><input className="border p-2 w-full mb-4" placeholder="Name" value={newServerName} onChange={e=>setNewServerName(e.target.value)}/><div className="flex justify-end gap-2"><button onClick={()=>setShowCreateServer(false)}>Cancel</button><button onClick={createServer} className="bg-green-600 text-white px-4 py-2 rounded">Create</button></div></div></div>}
         {showCreateChannel && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><div className="bg-white p-6 rounded-xl"><input className="border p-2 w-full mb-4" placeholder="Name" value={newChannelName} onChange={e=>setNewChannelName(e.target.value)}/><div className="flex justify-end gap-2"><button onClick={()=>setShowCreateChannel(false)}>Cancel</button><button onClick={createChannel} className="bg-green-600 text-white px-4 py-2 rounded">Create</button></div></div></div>}
         {showAddFriend && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><div className="bg-white p-6 rounded-xl"><input className="border p-2 w-full mb-4" placeholder="Username" value={friendName} onChange={e=>setFriendName(e.target.value)}/><div className="flex justify-end gap-2"><button onClick={()=>setShowAddFriend(false)}>Cancel</button><button onClick={addFriend} className="bg-green-600 text-white px-4 py-2 rounded">Send</button></div></div></div>}
