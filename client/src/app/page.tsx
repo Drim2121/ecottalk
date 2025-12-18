@@ -6,7 +6,7 @@ import {
   Check, X, Settings, Trash2, UserMinus, Users, Volume2, Mic, MicOff, Smile, Edit2,
   Palette, Zap, ZapOff, Video, VideoOff, Monitor, MonitorOff, Volume1, VolumeX, Camera,
   Maximize, Minimize, Keyboard, Sliders, Volume, Headphones, HeadphoneOff, WifiOff, UploadCloud,
-  User, Speaker, Image as ImageIcon, Sparkles, MoreVertical, ShoppingBag, Coins, Lock
+  User, Speaker, Image as ImageIcon, Sparkles, MoreVertical, ShoppingBag, Coins, Lock, Gift
 } from "lucide-react";
 import io, { Socket } from "socket.io-client";
 import Peer from "simple-peer";
@@ -62,7 +62,6 @@ const playSoundEffect = (type: 'msg' | 'join' | 'leave' | 'click') => {
   else { const osc = ctx.createOscillator(); const gain = ctx.createGain(); osc.connect(gain); gain.connect(ctx.destination); const now = ctx.currentTime; osc.type = 'sine'; if (type === 'msg') { osc.frequency.setValueAtTime(440, now); osc.frequency.setValueAtTime(554, now + 0.1); gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.4); } else if (type === 'join') { osc.frequency.setValueAtTime(300, now); osc.frequency.linearRampToValueAtTime(600, now + 0.2); gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.3); } else if (type === 'leave') { osc.frequency.setValueAtTime(400, now); osc.frequency.linearRampToValueAtTime(200, now + 0.2); gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.3); } osc.start(now); osc.stop(now + 0.4); }
 };
 
-// === FIX: LOWER THRESHOLD TO 5 ===
 const useStreamAnalyzer = (stream: MediaStream | null) => {
     const [isTalking, setIsTalking] = useState(false);
     useEffect(() => { if (!stream || stream.getAudioTracks().length === 0) { setIsTalking(false); return; } const ctx = getAudioContext(); if (!ctx) return; let source: MediaStreamAudioSourceNode | null = null; let analyser: AnalyserNode | null = null; let interval: any = null; try { if (ctx.state === "suspended") ctx.resume(); analyser = ctx.createAnalyser(); analyser.fftSize = 256; source = ctx.createMediaStreamSource(stream); source.connect(analyser); const checkVolume = () => { if (!analyser) return; const data = new Uint8Array(analyser.frequencyBinCount); analyser.getByteFrequencyData(data); let sum = 0; for (let i = 0; i < data.length; i++) sum += data[i]; 
@@ -90,7 +89,6 @@ const AvatarWithFrame = ({ url, frameId, sizeClass = "w-10 h-10", isOnline = fal
     );
 };
 
-// === FIX: USER MEDIA COMPONENT WITH GREEN RING ===
 const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, username, outputDeviceId, isScreenShare, globalDeaf, remoteMuted, miniMode, frameId }: { stream: MediaStream | null; isLocal: boolean; userId: string; userAvatar?: string; username?: string; outputDeviceId?: string; isScreenShare?: boolean; globalDeaf?: boolean; remoteMuted?: boolean; miniMode?: boolean; frameId?: string }) => {
   const videoRef = useRef<HTMLVideoElement>(null); 
   const containerRef = useRef<HTMLDivElement>(null); 
@@ -112,13 +110,11 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
   const shouldMuteVideoElement = isLocal || (globalDeaf === true);
   const avatarSize = miniMode ? "w-8 h-8" : "w-24 h-24";
 
-  // ADDED RING CLASS
   const speakingClass = isSpeaking && !remoteMuted ? "ring-4 ring-green-500 scale-110 shadow-[0_0_15px_rgba(34,197,94,0.6)]" : "";
 
   return (
     <div ref={containerRef} className={containerClass}>
       <video ref={videoRef} autoPlay playsInline muted={shouldMuteVideoElement} className={`absolute inset-0 w-full h-full ${objectFitClass} transition-all duration-300 ${hasVideo ? 'opacity-100' : 'opacity-0'} ${isLocal && !isScreenShare ? 'scale-x-[-1]' : ''}`} />
-      
       {!hasVideo && (
         <div className="z-10 flex flex-col items-center">
             <div className={`relative ${avatarSize} rounded-full transition-all duration-150 ${speakingClass}`}>
@@ -126,7 +122,6 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
             </div>
         </div>
       )}
-
       {hasVideo && isSpeaking && !remoteMuted && (<div className="absolute inset-0 border-4 border-green-500 rounded-xl z-20 pointer-events-none opacity-80 shadow-[inset_0_0_20px_rgba(34,197,94,0.5)]"></div>)}
       {remoteMuted && (<div className={`absolute top-2 right-2 bg-red-600 ${miniMode ? 'p-1' : 'p-2'} rounded-full shadow-lg z-20`}><MicOff size={miniMode ? 10 : 16} className="text-white" /></div>)}
       {!isLocal && !miniMode && (<div className="absolute bottom-12 left-1/2 -translate-x-1/2 w-3/4 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 px-3 py-1 rounded-full flex items-center gap-2 z-30"><Volume size={14} className="text-gray-300"/><input type="range" min="0" max="1" step="0.05" value={volume} onChange={e=>setVolume(Number(e.target.value))} className="w-full"/></div>)}
@@ -198,6 +193,7 @@ export default function EcoTalkApp() {
   const [selectedBanner, setSelectedBanner] = useState('default');
   const [myCoins, setMyCoins] = useState(0);
   const [myInventory, setMyInventory] = useState<string[]>([]);
+  const [lastDailyClaim, setLastDailyClaim] = useState<string | null>(null);
 
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const serverIconInputRef = useRef<HTMLInputElement>(null);
@@ -287,7 +283,7 @@ export default function EcoTalkApp() {
     const onVoiceUpdate = ({ roomId, users }: any) => { setVoiceStates((prev) => { const key = Number(roomId); if (JSON.stringify(prev[key]) === JSON.stringify(users)) return prev; return { ...prev, [key]: users }; }); };
     const onMsgUpdated = (u: any) => setMessages((p) => p.map((m) => (m.id === u.id ? u : m))); const onMsgDeleted = (id: number) => setMessages((p) => p.filter((m) => m.id !== id));
     const onTyping = (id: number | null | undefined) => { const me = currentUserRef.current?.id; if (!id || id === me) return; setTypingUsers((p) => Array.from(new Set([...p, id]))); }; const onStopTyping = (id: number | null | undefined) => { if (!id) return; setTypingUsers((p) => p.filter((x) => x !== id)); };
-    const onBalanceUpdate = (coins: number) => { setMyCoins(coins); };
+    const onBalanceUpdate = (coins: number) => { setMyCoins(coins); playSound('msg'); };
     
     const onConnect = () => { if (currentUserRef.current?.id) { socket.emit("auth_user", currentUserRef.current.id); } };
     socket.on("connect", onConnect); socket.on("receive_message", onReceiveMessage); socket.on("load_history", onLoadHistory); socket.on("new_notification", onNewNotif); socket.on("friend_added", onFriendAdded); socket.on("friend_removed", onFriendRemoved); socket.on("user_status_changed", onUserStatus); socket.on("voice_room_update", onVoiceUpdate); socket.on("message_updated", onMsgUpdated); socket.on("message_deleted", onMsgDeleted); socket.on("user_typing", onTyping); socket.on("user_stop_typing", onStopTyping); socket.on("balance_update", onBalanceUpdate);
@@ -316,6 +312,7 @@ export default function EcoTalkApp() {
       setCurrentUser(d); 
       setMyCoins(d.coins || 0); 
       try { setMyInventory(JSON.parse(d.inventory || '[]')); } catch { setMyInventory([]); }
+      setLastDailyClaim(d.lastDailyClaim);
       setMyServers(d.servers?.map((s: any) => s.server) || []); 
       setMyFriends(d.friendsList || []); 
       setSelectedFrame(d.frame || 'none'); 
@@ -359,6 +356,18 @@ export default function EcoTalkApp() {
           alert(err.error);
       }
   };
+  const claimDaily = async () => {
+      const res = await fetch(`${SOCKET_URL}/api/shop/daily`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: token! } });
+      if (res.ok) {
+          const d = await res.json();
+          setMyCoins(d.coins);
+          setLastDailyClaim(d.lastDailyClaim);
+          playSound("click");
+          alert("You received 50 coins!");
+      } else {
+          alert("Come back tomorrow!");
+      }
+  };
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>, isUser: boolean) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onloadend = () => { if (isUser) setEditUserAvatar(reader.result as string); else setEditServerIcon(reader.result as string); }; reader.readAsDataURL(file); };
   const removeFriend = async (friendId: number) => { if (!token) return; if (!confirm("Remove?")) return; const res = await fetch(`${SOCKET_URL}/api/friends/${friendId}`, { method: "DELETE", headers: { Authorization: token }, }); if (res.ok) { setMyFriends((prev) => prev.filter((f) => f.id !== friendId)); if (activeDM?.id === friendId) setActiveDM(null); } };
   const kickMember = async (userId: number) => { if (!activeServerId || !token) return; if (!confirm("Kick?")) return; const res = await fetch(`${SOCKET_URL}/api/server/${activeServerId}/kick/${userId}`, { method: "DELETE", headers: { Authorization: token }, }); if (res.ok) selectServer(activeServerId); };
@@ -382,6 +391,7 @@ export default function EcoTalkApp() {
   const deleteMessage = async (msgId: number) => { if(!confirm("Delete?")) return; await fetch(`${SOCKET_URL}/api/messages/${msgId}`, { method: 'DELETE', headers: { 'Authorization': token! } }); };
   const toggleReaction = async (msgId: number, emoji: string) => { await fetch(`${SOCKET_URL}/api/messages/${msgId}/react`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': token! }, body: JSON.stringify({ emoji }) }); };
   
+  // === NEW: CLICK HANDLER FOR VIEWING PROFILES ===
   const handleUserClick = (user: any) => {
       if (user.id === currentUser?.id) {
           openUserProfile();
@@ -437,6 +447,7 @@ export default function EcoTalkApp() {
                 ))}
               </>
             ) : (
+               // === DM LIST WITH FRAMES ===
                myFriends.map(f => (
                    <div key={f.id} onClick={()=>selectDM(f)} className={`flex items-center p-2 rounded cursor-pointer ${activeDM?.id===f.id?'bg-[var(--bg-tertiary)]':''}`}>
                        <div className="relative w-8 h-8 flex-shrink-0 mr-2">
@@ -505,6 +516,7 @@ export default function EcoTalkApp() {
                         {member.banner && member.banner !== 'default' && (
                             <div className={`absolute inset-0 opacity-40 pointer-events-none z-0 ${AVAILABLE_BANNERS.find(b=>b.id===member.banner)?.color}`}></div>
                         )}
+                        
                         <div className="flex items-center gap-3 relative z-10">
                             <div className="relative w-8 h-8 flex-shrink-0">
                                 <AvatarWithFrame url={member.avatar} frameId={member.frame} sizeClass="w-full h-full" isOnline={member.status==='online'}/>
@@ -549,6 +561,7 @@ export default function EcoTalkApp() {
             </div>
         )}
 
+        {/* ===== SETTINGS MODAL ===== */}
         {showUserSettings && (
           <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-[60] backdrop-blur-sm">
             <div className="bg-[var(--modal-bg)] w-[800px] h-[550px] rounded-xl shadow-2xl flex overflow-hidden border border-[var(--border)] animate-in zoom-in-95 duration-200">
@@ -624,6 +637,17 @@ export default function EcoTalkApp() {
                             <div className="flex justify-between items-center mb-6">
                                 <h2 className="text-xl font-bold flex items-center gap-2"><ShoppingBag className="text-purple-500"/> Item Shop</h2>
                                 <div className="bg-yellow-500 text-white px-4 py-1 rounded-full font-bold text-sm flex items-center gap-2 shadow-lg"><Coins size={16}/> {myCoins} Coins</div>
+                            </div>
+
+                            <div className="bg-gradient-to-r from-indigo-500 to-purple-600 p-4 rounded-xl text-white mb-8 flex justify-between items-center shadow-lg">
+                                <div>
+                                    <div className="font-bold text-lg flex items-center gap-2"><Gift size={20}/> Daily Reward</div>
+                                    <div className="text-xs opacity-80">Come back every 24 hours to claim 50 free coins!</div>
+                                    {lastDailyClaim && (
+                                        <div className="text-[10px] mt-1 opacity-70">Last claimed: {new Date(lastDailyClaim).toLocaleString()}</div>
+                                    )}
+                                </div>
+                                <button onClick={claimDaily} className="bg-white text-indigo-600 font-bold px-4 py-2 rounded-lg shadow-md hover:bg-gray-100 transition-colors">Claim Now</button>
                             </div>
                             
                             <h3 className="text-xs font-bold text-[var(--text-secondary)] mb-4 border-b border-[var(--border)] pb-2">PREMIUM FRAMES</h3>

@@ -13,12 +13,16 @@ model User {
   password    String
   avatar      String?
   
-  // === НОВЫЕ ПОЛЯ ===
+  // === ЭКОНОМИКА И ПРОФИЛЬ ===
   frame       String?   @default("none")
   banner      String?   @default("default")
   coins       Int       @default(0)
   inventory   String    @default("[]")
-  // ==================
+  
+  // Новые поля для наград
+  lastDailyClaim DateTime?  // Когда последний раз брал награду
+  lastVoiceJoin  DateTime?  // Когда зашел в войс (для подсчета минут)
+  // ===========================
 
   status      String    @default("offline")
   lastSeen    DateTime?

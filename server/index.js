@@ -22,20 +22,8 @@ const io = new Server(server, {
 
 // ===== SHOP CONFIG =====
 const SHOP_PRICES = {
-  // Frames
-  'gold': 500,
-  'neon': 1000,
-  'ruby': 2500,
-  'nature': 300,
-  'fire': 5000,
-  // Banners
-  'blue': 100,
-  'purple': 100,
-  'gold': 1000,
-  'forest': 200,
-  'crimson': 300,
-  'night': 500,
-  'gray': 50
+  'gold': 500, 'neon': 1000, 'ruby': 2500, 'nature': 300, 'fire': 5000,
+  'blue': 100, 'purple': 100, 'gold': 1000, 'forest': 200, 'crimson': 300, 'night': 500, 'gray': 50
 };
 
 // ======================= HELPERS =======================
@@ -126,15 +114,48 @@ const broadcastRoomUsers = async (roomId) => {
   io.emit("voice_room_update", { roomId, users });
 };
 
-// === FIX: Correctly handling empty rooms ===
+// === FIX: Correctly handling empty rooms AND Voice Rewards ===
 const leaveRoomBySocket = async (socket) => {
+  // 1. Voice Reward Calculation
+  if (socket.userId) {
+    try {
+      const user = await prisma.user.findUnique({ where: { id: socket.userId } });
+      if (user && user.lastVoiceJoin) {
+        const now = new Date();
+        const diffMs = now.getTime() - new Date(user.lastVoiceJoin).getTime();
+        const minutes = Math.floor(diffMs / 60000); // миллисекунды в минуты
+        
+        // Награда: 10 монет за каждые 10 полных минут
+        const rewardChunks = Math.floor(minutes / 10);
+        const coinsEarned = rewardChunks * 10;
+
+        if (coinsEarned > 0) {
+          const updated = await prisma.user.update({
+            where: { id: user.id },
+            data: { 
+                coins: { increment: coinsEarned },
+                lastVoiceJoin: null // Сбрасываем таймер
+            }
+          });
+          // Отправляем уведомление о монетах только этому пользователю
+          socket.emit("balance_update", updated.coins);
+        } else {
+           // Просто сбрасываем таймер, если вышли раньше 10 мин
+           await prisma.user.update({
+             where: { id: user.id },
+             data: { lastVoiceJoin: null }
+           });
+        }
+      }
+    } catch(e) { console.error("Voice reward error", e); }
+  }
+
+  // 2. Room Cleanup Logic
   const r = socketToRoom[socket.id];
   if (!r) return;
 
   if (rooms[r]) {
     rooms[r] = rooms[r].filter((p) => p.socketId !== socket.id);
-    
-    // Если комната пуста — удаляем и ОБЯЗАТЕЛЬНО шлем пустой список
     if (rooms[r].length === 0) {
         delete rooms[r];
         io.emit("voice_room_update", { roomId: r, users: [] }); 
@@ -179,11 +200,11 @@ app.put('/api/me', authenticateToken, async (req, res) => {
     });
     res.json(updated);
   } catch (e) {
-    console.error(e);
     res.status(500).json({ error: "Ошибка" });
   }
 });
 
+// === SHOP: BUY ITEM ===
 app.post("/api/shop/buy", authenticateToken, async (req, res) => {
   try {
     const { itemId } = req.body;
@@ -200,8 +221,36 @@ app.post("/api/shop/buy", authenticateToken, async (req, res) => {
     });
     res.json({ coins: updated.coins, inventory });
   } catch (e) {
-    console.error(e);
     res.status(500).json({ error: "Transaction failed" });
+  }
+});
+
+// === SHOP: DAILY REWARD ===
+app.post("/api/shop/daily", authenticateToken, async (req, res) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    const now = new Date();
+    const lastClaim = user.lastDailyClaim ? new Date(user.lastDailyClaim) : new Date(0);
+    
+    // Проверка 24 часа (86400000 мс)
+    const diff = now.getTime() - lastClaim.getTime();
+    if (diff < 86400000) {
+        return res.status(400).json({ error: "Come back later" });
+    }
+
+    const reward = 50; // Награда 50 монет
+    const updated = await prisma.user.update({
+        where: { id: user.id },
+        data: { 
+            coins: { increment: reward },
+            lastDailyClaim: now
+        }
+    });
+    
+    res.json({ coins: updated.coins, lastDailyClaim: now });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Error" });
   }
 });
 
@@ -220,12 +269,12 @@ app.post("/api/auth/register", async (req, res) => {
         avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(username)}`,
         friendsData: "[]",
         coins: 100,
+        lastDailyClaim: null // Новый пользователь может сразу взять награду
       },
     });
     const token = jwt.sign({ id: user.id, username: user.username }, SECRET_KEY);
     res.json({ token, user });
   } catch (e) {
-    console.error(e);
     res.status(500).json({ error: "Error" });
   }
 });
@@ -242,7 +291,6 @@ app.post("/api/auth/login", async (req, res) => {
     const token = jwt.sign({ id: user.id, username: user.username }, SECRET_KEY);
     res.json({ token, user });
   } catch (e) {
-    console.error(e);
     res.status(500).json({ error: "Error" });
   }
 });
@@ -264,7 +312,6 @@ app.post("/api/servers", authenticateToken, async (req, res) => {
     });
     res.json(created);
   } catch (e) {
-    console.error(e);
     res.status(500).json({ error: "Error" });
   }
 });
@@ -279,7 +326,6 @@ app.get("/api/server/:id", authenticateToken, async (req, res) => {
     if (!serverData) return res.status(404).json({ error: "Not found" });
     res.json(serverData);
   } catch (e) {
-    console.error(e);
     res.status(500).json({ error: "Error" });
   }
 });
@@ -296,7 +342,6 @@ app.put("/api/server/:id", authenticateToken, async (req, res) => {
     });
     res.json(updated);
   } catch (e) {
-    console.error(e);
     res.status(500).json({ error: "Error" });
   }
 });
@@ -309,7 +354,6 @@ app.delete("/api/server/:id", authenticateToken, async (req, res) => {
     await prisma.server.delete({ where: { id } });
     res.json({ ok: true });
   } catch (e) {
-    console.error(e);
     res.status(500).json({ error: "Error" });
   }
 });
@@ -323,7 +367,6 @@ app.delete("/api/server/:serverId/kick/:userId", authenticateToken, async (req, 
     await prisma.member.deleteMany({ where: { serverId, userId } });
     res.json({ ok: true });
   } catch (e) {
-    console.error(e);
     res.status(500).json({ error: "Error" });
   }
 });
@@ -345,7 +388,6 @@ app.post("/api/servers/invite", authenticateToken, async (req, res) => {
     io.to(`user_${receiver.id}`).emit("new_notification", notif);
     res.json({ ok: true });
   } catch (e) {
-    console.error(e);
     res.status(500).json({ error: "Error" });
   }
 });
@@ -359,7 +401,6 @@ app.post("/api/channels", authenticateToken, async (req, res) => {
     const channel = await prisma.channel.create({ data: { name, type: type || "text", serverId: sid } });
     res.json(channel);
   } catch (e) {
-    console.error(e);
     res.status(500).json({ error: "Error" });
   }
 });
@@ -374,7 +415,6 @@ app.put("/api/channels/:id", authenticateToken, async (req, res) => {
     const updated = await prisma.channel.update({ where: { id }, data: { name } });
     res.json(updated);
   } catch (e) {
-    console.error(e);
     res.status(500).json({ error: "Error" });
   }
 });
@@ -388,7 +428,6 @@ app.delete("/api/channels/:id", authenticateToken, async (req, res) => {
     await prisma.channel.delete({ where: { id } });
     res.json({ ok: true });
   } catch (e) {
-    console.error(e);
     res.status(500).json({ error: "Error" });
   }
 });
@@ -411,7 +450,6 @@ app.post("/api/friends/invite", authenticateToken, async (req, res) => {
     io.to(`user_${receiver.id}`).emit("new_notification", notif);
     res.json({ ok: true });
   } catch (e) {
-    console.error(e);
     res.status(500).json({ error: "Error" });
   }
 });
@@ -424,7 +462,6 @@ app.delete("/api/friends/:friendId", authenticateToken, async (req, res) => {
     io.to(`user_${req.user.id}`).emit("friend_removed", friendId);
     res.json({ ok: true });
   } catch (e) {
-    console.error(e);
     res.status(500).json({ error: "Error" });
   }
 });
@@ -455,7 +492,6 @@ app.post("/api/notifications/respond", authenticateToken, async (req, res) => {
     }
     res.json({ ok: true });
   } catch (e) {
-    console.error(e);
     res.status(500).json({ error: "Error" });
   }
 });
@@ -471,7 +507,6 @@ app.put("/api/messages/:id", authenticateToken, async (req, res) => {
     if (room) io.to(room).emit("message_updated", updated);
     res.json(updated);
   } catch (e) {
-    console.error(e);
     res.status(500).json({ error: "Error" });
   }
 });
@@ -486,7 +521,6 @@ app.delete("/api/messages/:id", authenticateToken, async (req, res) => {
     if (room) io.to(room).emit("message_deleted", id);
     res.json({ ok: true });
   } catch (e) {
-    console.error(e);
     res.status(500).json({ error: "Error" });
   }
 });
@@ -503,7 +537,6 @@ app.post("/api/messages/:id/react", authenticateToken, async (req, res) => {
     if (room) io.to(room).emit("message_updated", updated);
     res.json({ ok: true });
   } catch (e) {
-    console.error(e);
     res.status(500).json({ error: "Error" });
   }
 });
@@ -556,11 +589,7 @@ io.on("connection", (socket) => {
         data: { content: content ?? null, imageUrl: imageUrl ?? null, author: author || "Unknown", userId: Number(userId), channelId: channelId ? Number(channelId) : null, dmRoom: dmRoom ? String(dmRoom) : null, type: type || "text" },
         include: { user: true, reactions: { include: { user: true } } },
       });
-      // ECO
-      try {
-        const updatedUser = await prisma.user.update({ where: { id: Number(userId) }, data: { coins: { increment: 1 } } });
-        socket.emit("balance_update", updatedUser.coins);
-      } catch (err) {}
+      // == УБРАНО НАЧИСЛЕНИЕ МОНЕТ ЗА СООБЩЕНИЯ ==
       const room = m.channelId ? `channel_${m.channelId}` : m.dmRoom;
       if (room) io.to(room).emit("receive_message", m);
     } catch (e) { console.error(e); }
@@ -573,7 +602,14 @@ io.on("connection", (socket) => {
   socket.on("join_voice_channel", async (roomId) => {
     try {
       if (!socket.userId) return;
-      await leaveRoomBySocket(socket);
+      await leaveRoomBySocket(socket); // Выходим из старой, если есть
+
+      // Засекаем время входа
+      await prisma.user.update({
+          where: { id: socket.userId },
+          data: { lastVoiceJoin: new Date() }
+      });
+
       const rid = String(roomId);
       if (!rooms[rid]) rooms[rid] = [];
       rooms[rid].push({ socketId: socket.id, userId: socket.userId });
