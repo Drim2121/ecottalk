@@ -11,6 +11,7 @@ import io, { Socket } from "socket.io-client";
 import Peer from "simple-peer";
 
 // ===== CONSTANTS =====
+// ВАЖНО: Если вы уже купили домен и настроили SSL, замените на "https://ваш-домен.ru"
 const SOCKET_URL = "http://5.129.215.82:3001";
 
 // ===== SOUNDS (Base64) =====
@@ -116,7 +117,6 @@ const useProcessedStream = (rawStream: MediaStream | null, threshold: number, is
         if (gainNodeRef.current) {
             const ctx = gainNodeRef.current.context;
             gainNodeRef.current.gain.cancelScheduledValues(ctx.currentTime);
-            // Software Mute Logic
             gainNodeRef.current.gain.setValueAtTime(isMuted ? 0 : 1, ctx.currentTime);
         }
     }, [isMuted]);
@@ -394,8 +394,8 @@ export default function EcoTalkApp() {
   };
 
   useEffect(() => {
-     // Broadcast whenever mute changes
-     broadcastMuteState(isMuted);
+      // Broadcast whenever mute changes
+      broadcastMuteState(isMuted);
   }, [isMuted, peers]);
 
   // === FIX: Sync Mute State to Track (so peers see the mute icon) ===
@@ -462,6 +462,7 @@ export default function EcoTalkApp() {
       window.addEventListener("keydown", handleKeyDown); return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isRecordingKey, muteKey, activeVoiceChannel, myStream, isMuted, soundEnabled]); 
 
+  // === INITIAL SETUP ===
   useEffect(() => {
     setMounted(true); const storedToken = localStorage.getItem("eco_token"); if (storedToken) { setToken(storedToken); fetchUserData(storedToken); }
     const savedMic = localStorage.getItem("eco_mic_id"); const savedSpeaker = localStorage.getItem("eco_speaker_id"); if (savedMic) setSelectedMicId(savedMic); if (savedSpeaker) setSelectedSpeakerId(savedSpeaker);
@@ -475,27 +476,60 @@ export default function EcoTalkApp() {
     document.addEventListener("click", unlock); return () => { document.removeEventListener("click", unlock); };
   }, []);
 
+  // === FORCE OFFLINE ON TAB CLOSE ===
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (socket) socket.emit("disconnect");
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [socket]);
+
+  // === SOCKET EVENT LISTENERS (FIXED ONLINE/OFFLINE STATUS) ===
   useEffect(() => {
     const onReceiveMessage = (msg: any) => {
       setMessages((p) => [...p, msg]); if (msg.userId !== currentUserRef.current?.id) playSound("msg"); 
       setMyFriends((prev) => { const currentUserId = currentUserRef.current?.id; let partnerId = msg.userId === currentUserId ? activeDMRef.current?.id : msg.userId; let partnerData = msg.userId === currentUserId ? activeDMRef.current : (msg.user || { id: msg.userId, username: msg.author, avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${msg.userId}`, status: 'online' }); if (!partnerId) return prev; const filtered = prev.filter(f => f.id !== partnerId); let friendObj = prev.find(f => f.id === partnerId) || partnerData; if (!friendObj) return prev; return [friendObj, ...filtered]; });
     };
     const onLoadHistory = (h: any[]) => setMessages(h); const onNewNotif = (n: any) => { setNotifications((p) => [n, ...p]); playSound("msg"); };
+    
     const onFriendAdded = (f: any) => { setMyFriends((p) => (p.find((x) => x.id === f.id) ? p : [...p, f])); if (tokenRef.current) fetchUserData(tokenRef.current); };
     const onFriendRemoved = (id: number) => { setMyFriends((p) => p.filter((f) => f.id !== id)); setActiveDM((prev: any) => (prev?.id === id ? null : prev)); };
-    const onUserStatus = ({ userId, status, lastSeen }: any) => { setMyFriends((p) => p.map((f) => (f.id === userId ? { ...f, status, lastSeen } : f))); setCurrentServerMembers((p) => p.map((m) => (m.id === userId ? { ...m, status, lastSeen } : m))); };
+    
+    // Fix: Обновляем статус везде (друзья, участники сервера, активный ЛС)
+    const onUserStatus = ({ userId, status, lastSeen }: any) => { 
+        setMyFriends((p) => p.map((f) => (f.id === userId ? { ...f, status, lastSeen } : f))); 
+        setCurrentServerMembers((p) => p.map((m) => (m.id === userId ? { ...m, status, lastSeen } : m))); 
+        if (activeDMRef.current?.id === userId) {
+            setActiveDM((prev: any) => ({...prev, status, lastSeen }));
+        }
+    };
+    
     const onVoiceUpdate = ({ roomId, users }: any) => { setVoiceStates((prev) => { const key = Number(roomId); if (JSON.stringify(prev[key]) === JSON.stringify(users)) return prev; return { ...prev, [key]: users }; }); };
     const onMsgUpdated = (u: any) => setMessages((p) => p.map((m) => (m.id === u.id ? u : m)));
     const onMsgDeleted = (id: number) => setMessages((p) => p.filter((m) => m.id !== id));
     const onTyping = (id: number | null | undefined) => { const me = currentUserRef.current?.id; if (!id || id === me) return; setTypingUsers((p) => Array.from(new Set([...p, id]))); };
     const onStopTyping = (id: number | null | undefined) => { if (!id) return; setTypingUsers((p) => p.filter((x) => x !== id)); };
 
+    // FIX: Re-authenticate on reconnect to fix phantom online status
+    const onConnect = () => {
+        if (currentUserRef.current?.id) {
+            socket.emit("auth_user", currentUserRef.current.id);
+        }
+    };
+
+    socket.on("connect", onConnect);
     socket.on("receive_message", onReceiveMessage); socket.on("load_history", onLoadHistory); socket.on("new_notification", onNewNotif); socket.on("friend_added", onFriendAdded);
     socket.on("friend_removed", onFriendRemoved); socket.on("user_status_changed", onUserStatus); socket.on("voice_room_update", onVoiceUpdate);
     socket.on("message_updated", onMsgUpdated); socket.on("message_deleted", onMsgDeleted); socket.on("user_typing", onTyping); socket.on("user_stop_typing", onStopTyping);
-    return () => { socket.off("receive_message", onReceiveMessage); socket.off("load_history", onLoadHistory); socket.off("new_notification", onNewNotif); socket.off("friend_added", onFriendAdded); socket.off("friend_removed", onFriendRemoved); socket.off("user_status_changed", onUserStatus); socket.off("voice_room_update", onVoiceUpdate); socket.off("message_updated", onMsgUpdated); socket.off("message_deleted", onMsgDeleted); socket.off("user_typing", onTyping); socket.off("user_stop_typing", onStopTyping); };
+    
+    return () => { 
+        socket.off("connect", onConnect);
+        socket.off("receive_message", onReceiveMessage); socket.off("load_history", onLoadHistory); socket.off("new_notification", onNewNotif); socket.off("friend_added", onFriendAdded); socket.off("friend_removed", onFriendRemoved); socket.off("user_status_changed", onUserStatus); socket.off("voice_room_update", onVoiceUpdate); socket.off("message_updated", onMsgUpdated); socket.off("message_deleted", onMsgDeleted); socket.off("user_typing", onTyping); socket.off("user_stop_typing", onStopTyping); 
+    };
   }, [socket]);
 
+  // === WEBRTC HANDLERS ===
   useEffect(() => {
     if (!activeVoiceChannel || !myStream || !processedStream) return;
     const streamToSend = processedStream;
@@ -826,7 +860,7 @@ export default function EcoTalkApp() {
         {showCreateChannel && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><div className="bg-white p-6 rounded-xl"><input className="border p-2 w-full mb-4" placeholder="Name" value={newChannelName} onChange={e=>setNewChannelName(e.target.value)}/><div className="flex justify-end gap-2"><button onClick={()=>setShowCreateChannel(false)}>Cancel</button><button onClick={createChannel} className="bg-green-600 text-white px-4 py-2 rounded">Create</button></div></div></div>}
         {showAddFriend && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><div className="bg-white p-6 rounded-xl"><input className="border p-2 w-full mb-4" placeholder="Username" value={friendName} onChange={e=>setFriendName(e.target.value)}/><div className="flex justify-end gap-2"><button onClick={()=>setShowAddFriend(false)}>Cancel</button><button onClick={addFriend} className="bg-green-600 text-white px-4 py-2 rounded">Send</button></div></div></div>}
         {showInvite && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><div className="bg-white p-6 rounded-xl"><input className="border p-2 w-full mb-4" placeholder="Username" value={inviteUserName} onChange={e=>setInviteUserName(e.target.value)}/><div className="flex justify-end gap-2"><button onClick={()=>setShowInvite(false)}>Cancel</button><button onClick={inviteUser} className="bg-green-600 text-white px-4 py-2 rounded">Invite</button></div></div></div>}
-      
+        
         {/* LIGHTBOX OVERLAY */}
         {viewingImage && (
             <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setViewingImage(null)}>
