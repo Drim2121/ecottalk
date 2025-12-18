@@ -11,7 +11,7 @@ import io, { Socket } from "socket.io-client";
 import Peer from "simple-peer";
 
 // ===== CONSTANTS =====
-// ВАЖНО: Если вы уже купили домен и настроили SSL, замените на "https://ваш-домен.ru"
+// ВАЖНО: Если вы уже купили домен, замените на "https://ваш-домен.ru"
 const SOCKET_URL = "http://5.129.215.82:3001";
 
 // ===== SOUNDS (Base64) =====
@@ -352,7 +352,28 @@ export default function EcoTalkApp() {
 
   useEffect(() => { const savedTheme = localStorage.getItem("eco_theme"); if (savedTheme) { setTheme(savedTheme); document.documentElement.setAttribute('data-theme', savedTheme); } }, []);
   const playSound = (type: 'msg' | 'join' | 'leave' | 'click') => { if (soundEnabled) playSoundEffect(type); };
-  const formatLastSeen = (d: string) => { if (!d) return "Offline"; const diff = Math.floor((Date.now() - new Date(d).getTime()) / 60000); if (diff < 1) return "Just now"; if (diff < 60) return `${diff}m ago`; const hours = Math.floor(diff / 60); return hours < 24 ? `${hours}h ago` : new Date(d).toLocaleDateString(); };
+  
+  // === FIX: LAST SEEN FORMAT (DATE + TIME) ===
+  const formatLastSeen = (d: string) => {
+    if (!d) return "Offline";
+    const date = new Date(d);
+    const diff = Math.floor((Date.now() - date.getTime()) / 60000);
+
+    if (diff < 1) return "Just now";
+    if (diff < 60) return `${diff}m ago`;
+    const hours = Math.floor(diff / 60);
+    if (hours < 24) return `${hours}h ago`;
+
+    // Форматирование: 15.12.2025 20:42
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    const hrs = String(date.getHours()).padStart(2, '0');
+    const mins = String(date.getMinutes()).padStart(2, '0');
+    
+    return `${day}.${month}.${year} ${hrs}:${mins}`;
+  };
+
   const formatDateHeader = (d: string) => { const date = new Date(d); const now = new Date(); const yesterday = new Date(); yesterday.setDate(now.getDate() - 1); if (date.toDateString() === now.toDateString()) return "Today"; if (date.toDateString() === yesterday.toDateString()) return "Yesterday"; return date.toLocaleDateString(); };
 
   useEffect(() => { tokenRef.current = token; }, [token]);
