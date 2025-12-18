@@ -12,6 +12,12 @@ model User {
   username    String    @unique
   password    String
   avatar      String?
+  
+  // --- ДОБАВИТЬ ВОТ ЭТИ ДВЕ СТРОКИ ---
+  frame       String?   @default("none")
+  banner      String?   @default("default")
+  // -----------------------------------
+
   status      String    @default("offline")
   lastSeen    DateTime?
   friendsData String?

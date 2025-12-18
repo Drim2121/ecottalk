@@ -6,39 +6,33 @@ import {
   Check, X, Settings, Trash2, UserMinus, Users, Volume2, Mic, MicOff, Smile, Edit2,
   Palette, Zap, ZapOff, Video, VideoOff, Monitor, MonitorOff, Volume1, VolumeX, Camera,
   Maximize, Minimize, Keyboard, Sliders, Volume, Headphones, HeadphoneOff, WifiOff, UploadCloud,
-  User, Speaker, Image as ImageIcon, Sparkles
+  User, Speaker, Image as ImageIcon, Sparkles, MoreVertical
 } from "lucide-react";
 import io, { Socket } from "socket.io-client";
 import Peer from "simple-peer";
 
 // ===== CONSTANTS =====
-const SOCKET_URL = "http://5.129.215.82:3001"; // Замените на ваш домен https://...
+const SOCKET_URL = "http://5.129.215.82:3001";
 
-// ===== MOCK SHOP ITEMS (Для будущего магазина) =====
+// ===== COSMETICS DATA =====
 const AVAILABLE_FRAMES = [
-  { id: 'none', name: 'No Frame', css: '' },
-  { id: 'gold', name: 'Golden Legend', css: 'ring-4 ring-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.6)]' },
+  { id: 'none', name: 'No Frame', css: 'border-2 border-gray-700' },
+  { id: 'gold', name: 'Golden Legend', css: 'ring-4 ring-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.6)] border-2 border-yellow-200' },
   { id: 'neon', name: 'Cyberpunk', css: 'ring-4 ring-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.8)] border-2 border-white' },
-  { id: 'ruby', name: 'Ruby Master', css: 'ring-4 ring-red-600 shadow-[0_0_15px_rgba(220,38,38,0.6)]' },
+  { id: 'ruby', name: 'Ruby Master', css: 'ring-4 ring-red-600 shadow-[0_0_15px_rgba(220,38,38,0.6)] border-2 border-red-400' },
   { id: 'nature', name: 'Eco Warrior', css: 'ring-4 ring-green-500 border-2 border-emerald-900 border-dashed' },
+  { id: 'fire', name: 'Inferno', css: 'ring-4 ring-orange-500 shadow-[0_0_20px_rgba(249,115,22,0.8)] animate-pulse' },
 ];
 
 const AVAILABLE_BANNERS = [
   { id: 'default', color: 'bg-gray-700' },
   { id: 'blue', color: 'bg-blue-600' },
   { id: 'purple', color: 'bg-purple-600' },
-  { id: 'gradient', color: 'bg-gradient-to-r from-pink-500 to-orange-500' },
+  { id: 'gold', color: 'bg-gradient-to-r from-yellow-600 to-yellow-300' },
   { id: 'forest', color: 'bg-gradient-to-br from-green-800 to-emerald-500' },
+  { id: 'crimson', color: 'bg-gradient-to-br from-red-900 to-red-600' },
   { id: 'night', color: 'bg-slate-900' },
 ];
-
-// ===== SOUNDS (Base64) =====
-const SOUNDS = {
-  msg: "data:audio/mpeg;base64,//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
-  join: "data:audio/mp3;base64,//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
-  leave: "data:audio/mp3;base64,//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//uQxAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
-  click: "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=" 
-};
 
 // ===== THEMES =====
 const THEME_STYLES = `
@@ -60,60 +54,44 @@ let _socket: Socket | null = null;
 function getSocket() { if (!_socket) { _socket = io(SOCKET_URL, { transports: ["websocket"], withCredentials: true }); } return _socket; }
 const peerConfig = { iceServers: [ { urls: "stun:stun.l.google.com:19302" }, { urls: "stun:global.stun.twilio.com:3478" } ] };
 
+// --- AUDIO HELPERS ---
 let globalAudioContext: AudioContext | null = null;
 const getAudioContext = () => { if (!globalAudioContext) { const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext; if (AudioContextClass) globalAudioContext = new AudioContextClass(); } return globalAudioContext; };
 
 const playSoundEffect = (type: 'msg' | 'join' | 'leave' | 'click') => {
-  const ctx = getAudioContext();
-  if (!ctx) return;
+  const ctx = getAudioContext(); if (!ctx) return;
   if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-  if (type === 'click') {
-    const osc = ctx.createOscillator(); const gain = ctx.createGain(); osc.connect(gain); gain.connect(ctx.destination); osc.frequency.setValueAtTime(800, ctx.currentTime); gain.gain.setValueAtTime(0.05, ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05); osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.05);
-  } else {
-    const osc = ctx.createOscillator(); const gain = ctx.createGain(); osc.connect(gain); gain.connect(ctx.destination); const now = ctx.currentTime; osc.type = 'sine';
-    if (type === 'msg') { osc.frequency.setValueAtTime(440, now); osc.frequency.setValueAtTime(554, now + 0.1); gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.4); } 
-    else if (type === 'join') { osc.frequency.setValueAtTime(300, now); osc.frequency.linearRampToValueAtTime(600, now + 0.2); gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.3); } 
-    else if (type === 'leave') { osc.frequency.setValueAtTime(400, now); osc.frequency.linearRampToValueAtTime(200, now + 0.2); gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.3); }
-    osc.start(now); osc.stop(now + 0.4);
-  }
+  if (type === 'click') { const osc = ctx.createOscillator(); const gain = ctx.createGain(); osc.connect(gain); gain.connect(ctx.destination); osc.frequency.setValueAtTime(800, ctx.currentTime); gain.gain.setValueAtTime(0.05, ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05); osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.05); }
+  else { const osc = ctx.createOscillator(); const gain = ctx.createGain(); osc.connect(gain); gain.connect(ctx.destination); const now = ctx.currentTime; osc.type = 'sine'; if (type === 'msg') { osc.frequency.setValueAtTime(440, now); osc.frequency.setValueAtTime(554, now + 0.1); gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.4); } else if (type === 'join') { osc.frequency.setValueAtTime(300, now); osc.frequency.linearRampToValueAtTime(600, now + 0.2); gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.3); } else if (type === 'leave') { osc.frequency.setValueAtTime(400, now); osc.frequency.linearRampToValueAtTime(200, now + 0.2); gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.3); } osc.start(now); osc.stop(now + 0.4); }
 };
 
 const useStreamAnalyzer = (stream: MediaStream | null) => {
     const [isTalking, setIsTalking] = useState(false);
-    useEffect(() => {
-        if (!stream || stream.getAudioTracks().length === 0) { setIsTalking(false); return; }
-        const ctx = getAudioContext(); if (!ctx) return;
-        let source: MediaStreamAudioSourceNode | null = null; let analyser: AnalyserNode | null = null; let interval: any = null;
-        try {
-            if (ctx.state === "suspended") ctx.resume(); analyser = ctx.createAnalyser(); analyser.fftSize = 256; source = ctx.createMediaStreamSource(stream); source.connect(analyser);
-            const checkVolume = () => { if (!analyser) return; const data = new Uint8Array(analyser.frequencyBinCount); analyser.getByteFrequencyData(data); let sum = 0; for (let i = 0; i < data.length; i++) sum += data[i]; setIsTalking((sum / data.length) > 10); };
-            interval = setInterval(checkVolume, 100);
-        } catch (e) {}
-        return () => { if (interval) clearInterval(interval); try { source?.disconnect(); analyser?.disconnect(); } catch {} };
-    }, [stream]);
+    useEffect(() => { if (!stream || stream.getAudioTracks().length === 0) { setIsTalking(false); return; } const ctx = getAudioContext(); if (!ctx) return; let source: MediaStreamAudioSourceNode | null = null; let analyser: AnalyserNode | null = null; let interval: any = null; try { if (ctx.state === "suspended") ctx.resume(); analyser = ctx.createAnalyser(); analyser.fftSize = 256; source = ctx.createMediaStreamSource(stream); source.connect(analyser); const checkVolume = () => { if (!analyser) return; const data = new Uint8Array(analyser.frequencyBinCount); analyser.getByteFrequencyData(data); let sum = 0; for (let i = 0; i < data.length; i++) sum += data[i]; setIsTalking((sum / data.length) > 10); }; interval = setInterval(checkVolume, 100); } catch (e) {} return () => { if (interval) clearInterval(interval); try { source?.disconnect(); analyser?.disconnect(); } catch {} }; }, [stream]);
     return isTalking;
 };
 
 const useProcessedStream = (rawStream: MediaStream | null, threshold: number, isMuted: boolean) => {
-    const [processedStream, setProcessedStream] = useState<MediaStream | null>(null);
-    const gainNodeRef = useRef<GainNode | null>(null); const isMutedRef = useRef(isMuted); const thresholdRef = useRef(threshold);
-    useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]); useEffect(() => { thresholdRef.current = threshold; }, [threshold]);
-    useEffect(() => { if (gainNodeRef.current) { const ctx = gainNodeRef.current.context; gainNodeRef.current.gain.cancelScheduledValues(ctx.currentTime); gainNodeRef.current.gain.setValueAtTime(isMuted ? 0 : 1, ctx.currentTime); } }, [isMuted]);
-    useEffect(() => {
-        if (!rawStream) return; if (rawStream.getVideoTracks().length > 0 || rawStream.getAudioTracks().length === 0) { setProcessedStream(rawStream); return; }
-        const ctx = getAudioContext(); if (!ctx) return;
-        const source = ctx.createMediaStreamSource(rawStream); const destination = ctx.createMediaStreamDestination(); const gainNode = ctx.createGain(); const analyser = ctx.createAnalyser(); analyser.fftSize = 512;
-        source.connect(analyser); analyser.connect(gainNode); gainNode.connect(destination); gainNodeRef.current = gainNode;
-        let interval: any;
-        const processAudio = () => { if (gainNodeRef.current?.gain.value === 0 && isMutedRef.current) return; const data = new Uint8Array(analyser.frequencyBinCount); analyser.getByteFrequencyData(data); let sum = 0; for (let i = 0; i < data.length; i++) sum += data[i]; if (!isMutedRef.current) { if ((sum / data.length) > thresholdRef.current) { gainNode.gain.setTargetAtTime(1, ctx.currentTime, 0.05); } else { gainNode.gain.setTargetAtTime(0, ctx.currentTime, 0.2); } } };
-        interval = setInterval(processAudio, 50); const newTracks = [...destination.stream.getAudioTracks(), ...rawStream.getVideoTracks()]; setProcessedStream(new MediaStream(newTracks));
-        return () => { clearInterval(interval); source.disconnect(); analyser.disconnect(); gainNode.disconnect(); };
-    }, [rawStream]);
+    const [processedStream, setProcessedStream] = useState<MediaStream | null>(null); const gainNodeRef = useRef<GainNode | null>(null); const isMutedRef = useRef(isMuted); const thresholdRef = useRef(threshold);
+    useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]); useEffect(() => { thresholdRef.current = threshold; }, [threshold]); useEffect(() => { if (gainNodeRef.current) { const ctx = gainNodeRef.current.context; gainNodeRef.current.gain.cancelScheduledValues(ctx.currentTime); gainNodeRef.current.gain.setValueAtTime(isMuted ? 0 : 1, ctx.currentTime); } }, [isMuted]);
+    useEffect(() => { if (!rawStream) return; if (rawStream.getVideoTracks().length > 0 || rawStream.getAudioTracks().length === 0) { setProcessedStream(rawStream); return; } const ctx = getAudioContext(); if (!ctx) return; const source = ctx.createMediaStreamSource(rawStream); const destination = ctx.createMediaStreamDestination(); const gainNode = ctx.createGain(); const analyser = ctx.createAnalyser(); analyser.fftSize = 512; source.connect(analyser); analyser.connect(gainNode); gainNode.connect(destination); gainNodeRef.current = gainNode; let interval: any; const processAudio = () => { if (gainNodeRef.current?.gain.value === 0 && isMutedRef.current) return; const data = new Uint8Array(analyser.frequencyBinCount); analyser.getByteFrequencyData(data); let sum = 0; for (let i = 0; i < data.length; i++) sum += data[i]; if (!isMutedRef.current) { if ((sum / data.length) > thresholdRef.current) { gainNode.gain.setTargetAtTime(1, ctx.currentTime, 0.05); } else { gainNode.gain.setTargetAtTime(0, ctx.currentTime, 0.2); } } }; interval = setInterval(processAudio, 50); const newTracks = [...destination.stream.getAudioTracks(), ...rawStream.getVideoTracks()]; setProcessedStream(new MediaStream(newTracks)); return () => { clearInterval(interval); source.disconnect(); analyser.disconnect(); gainNode.disconnect(); }; }, [rawStream]);
     return processedStream;
 };
 
-// --- COMPONENTS ---
-const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, username, outputDeviceId, isScreenShare, globalDeaf, remoteMuted, miniMode }: { stream: MediaStream | null; isLocal: boolean; userId: string; userAvatar?: string; username?: string; outputDeviceId?: string; isScreenShare?: boolean; globalDeaf?: boolean; remoteMuted?: boolean; miniMode?: boolean }) => {
+// --- UNIVERSAL AVATAR COMPONENT ---
+const AvatarWithFrame = ({ url, frameId, sizeClass = "w-10 h-10", isOnline = false, showStatus = true }: { url: string, frameId?: string, sizeClass?: string, isOnline?: boolean, showStatus?: boolean }) => {
+    const frame = AVAILABLE_FRAMES.find(f => f.id === (frameId || 'none')) || AVAILABLE_FRAMES[0];
+    return (
+        <div className={`relative ${sizeClass} flex-shrink-0`}>
+            <div className={`absolute inset-0 rounded-full ${frame.css} pointer-events-none z-10`}></div>
+            <img src={url} className="w-full h-full rounded-full object-cover" alt="avatar" />
+            {showStatus && <div className={`absolute bottom-0 right-0 w-[25%] h-[25%] border-2 border-[var(--bg-primary)] rounded-full z-20 ${isOnline ? 'bg-green-500' : 'bg-gray-400'}`}></div>}
+        </div>
+    );
+};
+
+// --- VIDEO COMPONENT ---
+const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, username, outputDeviceId, isScreenShare, globalDeaf, remoteMuted, miniMode, frameId }: { stream: MediaStream | null; isLocal: boolean; userId: string; userAvatar?: string; username?: string; outputDeviceId?: string; isScreenShare?: boolean; globalDeaf?: boolean; remoteMuted?: boolean; miniMode?: boolean; frameId?: string }) => {
   const videoRef = useRef<HTMLVideoElement>(null); const containerRef = useRef<HTMLDivElement>(null); const isSpeaking = useStreamAnalyzer(stream); const [hasVideo, setHasVideo] = useState(false); const [isAudioEnabled, setIsAudioEnabled] = useState(true); const [isFullscreen, setIsFullscreen] = useState(false); const [volume, setVolume] = useState(1);
   useEffect(() => { if(!stream) { setHasVideo(false); return; } const checkStatus = () => { setHasVideo(stream.getVideoTracks().length > 0 && stream.getVideoTracks()[0].enabled); const audioTrack = stream.getAudioTracks()[0]; setIsAudioEnabled(audioTrack ? audioTrack.enabled : false); }; const statusInterval = setInterval(checkStatus, 500); checkStatus(); return () => clearInterval(statusInterval); }, [stream]);
   useEffect(() => { const handleFsChange = () => { setIsFullscreen(!!document.fullscreenElement); }; document.addEventListener("fullscreenchange", handleFsChange); return () => document.removeEventListener("fullscreenchange", handleFsChange); }, []);
@@ -129,8 +107,8 @@ const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, us
       <video ref={videoRef} autoPlay playsInline muted={shouldMuteVideoElement} className={`absolute inset-0 w-full h-full ${objectFitClass} transition-all duration-300 ${hasVideo ? 'opacity-100' : 'opacity-0'} ${isLocal && !isScreenShare ? 'scale-x-[-1]' : ''}`} />
       {!hasVideo && (
         <div className="z-10 flex flex-col items-center">
-            <div className={`relative ${avatarSize} rounded-full p-1 transition-all duration-150 ${isSpeaking && !remoteMuted ? "bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.6)] scale-105" : "bg-gray-700"}`}>
-                <img src={userAvatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userId}`} className="w-full h-full rounded-full object-cover border-2 border-gray-900" alt="avatar"/>
+            <div className={`relative ${avatarSize} rounded-full p-1 transition-all duration-150 ${isSpeaking && !remoteMuted ? "scale-110" : ""}`}>
+                <AvatarWithFrame url={userAvatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userId}`} frameId={frameId} sizeClass="w-full h-full" showStatus={false}/>
             </div>
         </div>
       )}
@@ -148,7 +126,7 @@ const GroupPeerWrapper = ({ peer, peerID, outputDeviceId, allUsers, globalDeaf, 
   const [stream, setStream] = useState<MediaStream | null>(null); const [remoteMuted, setRemoteMuted] = useState(false);
   useEffect(() => { const onStream = (s: MediaStream) => setStream(s); const onData = (data: any) => { try { const str = new TextDecoder("utf-8").decode(data); const json = JSON.parse(str); if (json.type === 'mute-status') { setRemoteMuted(json.isMuted); } } catch(e) { console.log("Data channel error", e); } }; peer.on("stream", onStream); peer.on("data", onData); if ((peer as any)._remoteStreams?.length) setStream((peer as any)._remoteStreams[0]); return () => { peer.off("stream", onStream); peer.off("data", onData); }; }, [peer]);
   const u = allUsers.find((x: any) => x.socketId === peerID);
-  return <UserMediaComponent stream={stream} isLocal={false} userId={peerID} userAvatar={u?.avatar} username={u?.username || "Connecting..."} outputDeviceId={outputDeviceId} isScreenShare={false} globalDeaf={globalDeaf} remoteMuted={remoteMuted} miniMode={miniMode}/>;
+  return <UserMediaComponent stream={stream} isLocal={false} userId={peerID} userAvatar={u?.avatar} username={u?.username || "Connecting..."} outputDeviceId={outputDeviceId} isScreenShare={false} globalDeaf={globalDeaf} remoteMuted={remoteMuted} miniMode={miniMode} frameId={u?.frame}/>;
 };
 
 // ============================ APP ============================
@@ -199,7 +177,8 @@ export default function EcoTalkApp() {
   const [editUserName, setEditUserName] = useState("");
   const [editUserAvatar, setEditUserAvatar] = useState("");
   
-  // === PROFILE CUSTOMIZATION STATES ===
+  // === PROFILE & VIEWING ===
+  const [viewingUserProfile, setViewingUserProfile] = useState<any | null>(null);
   const [selectedFrame, setSelectedFrame] = useState('none');
   const [selectedBanner, setSelectedBanner] = useState('default');
 
@@ -311,7 +290,7 @@ export default function EcoTalkApp() {
   function createPeer(userToSignal: string, callerID: string, stream: MediaStream, s: Socket) { const peer = new Peer({ initiator: true, trickle: false, stream, config: peerConfig }); peer.on("signal", (signal) => { s.emit("sending_signal", { userToSignal, callerID, signal }); }); peer.on("connect", () => { try { peer.send(JSON.stringify({ type: 'mute-status', isMuted: isMuted })); } catch(e){} }); return peer; }
   function addPeer(incomingSignal: any, callerID: string, stream: MediaStream, s: Socket) { const peer = new Peer({ initiator: false, trickle: false, stream, config: peerConfig }); peer.on("signal", (signal) => { s.emit("returning_signal", { signal, callerID }); }); peer.on("connect", () => { try { peer.send(JSON.stringify({ type: 'mute-status', isMuted: isMuted })); } catch(e){} }); peer.signal(incomingSignal); return peer; }
 
-  const fetchUserData = async (t: string) => { const res = await fetch(`${SOCKET_URL}/api/me`, { headers: { Authorization: t } }); if (!res.ok) return; const d = await res.json(); setCurrentUser(d); setMyServers(d.servers?.map((s: any) => s.server) || []); setMyFriends(d.friendsList || []); socket.emit("auth_user", d.id); };
+  const fetchUserData = async (t: string) => { const res = await fetch(`${SOCKET_URL}/api/me`, { headers: { Authorization: t } }); if (!res.ok) return; const d = await res.json(); setCurrentUser(d); setMyServers(d.servers?.map((s: any) => s.server) || []); setMyFriends(d.friendsList || []); setSelectedFrame(d.frame || 'none'); setSelectedBanner(d.banner || 'default'); socket.emit("auth_user", d.id); };
   const handleAuth = async () => { const res = await fetch(`${SOCKET_URL}/api/auth/${authMode}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(authInput), }); const data = await res.json(); if (res.ok) { localStorage.setItem("eco_token", data.token); setToken(data.token); playSound("join"); window.location.reload(); } else { alert(data.error); } };
   const handleLogout = () => { playSound("leave"); setTimeout(() => { localStorage.removeItem("eco_token"); window.location.reload(); }, 800); };
   const handleTyping = (e: React.ChangeEvent<HTMLInputElement>) => { setInputText(e.target.value); const me = currentUserRef.current; if (!me) return; const room = activeServerId ? `channel_${activeChannel?.id}` : activeDM ? `dm_${[me.id, activeDM.id].sort().join("_")}` : null; if (!room) return; const now = Date.now(); if (now - lastTypingTime.current > 2000) { socket.emit("typing", { room }); lastTypingTime.current = now; } if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current); typingTimeoutRef.current = setTimeout(() => { socket.emit("stop_typing", { room }); }, 3000); };
@@ -326,7 +305,17 @@ export default function EcoTalkApp() {
   const saveAudioSettings = (mic: string, spk: string, nc: boolean, sound: boolean, threshold: number) => { setSelectedMicId(mic); setSelectedSpeakerId(spk); setEnableNoiseSuppression(nc); setSoundEnabled(sound); setVoiceThreshold(threshold); localStorage.setItem("eco_mic_id", mic); localStorage.setItem("eco_speaker_id", spk); localStorage.setItem("eco_nc", String(nc)); localStorage.setItem("eco_sound", String(sound)); localStorage.setItem("eco_voice_threshold", String(threshold)); if(sound) playSoundEffect("click"); };
   const toggleMicTest = async () => { if (isTestingMic) { if (testAudioRef.current?.srcObject) { (testAudioRef.current.srcObject as MediaStream).getTracks().forEach((t) => t.stop()); testAudioRef.current.srcObject = null; } setIsTestingMic(false); return; } try { const constraints = { audio: { deviceId: selectedMicId ? { exact: selectedMicId } : undefined, echoCancellation: true, noiseSuppression: enableNoiseSuppression, autoGainControl: true } }; const stream = await navigator.mediaDevices.getUserMedia(constraints); if (testAudioRef.current) { testAudioRef.current.srcObject = stream; const anyAudio = testAudioRef.current as any; if (selectedSpeakerId && typeof anyAudio.setSinkId === "function") { await anyAudio.setSinkId(selectedSpeakerId); } await testAudioRef.current.play().catch(() => {}); } setIsTestingMic(true); } catch (e) { console.error(e); alert("Mic error"); } };
   const closeSettings = () => { if (isTestingMic) toggleMicTest(); setShowUserSettings(false); playSound("click"); };
-  const updateUserProfile = async () => { const res = await fetch(`${SOCKET_URL}/api/me`, { method: "PUT", headers: { "Content-Type": "application/json", Authorization: token! }, body: JSON.stringify({ username: editUserName, avatar: editUserAvatar }), }); if (res.ok) { const updated = await res.json(); setCurrentUser((prev: any) => ({ ...prev, ...updated })); setShowUserSettings(false); alert("Updated!"); } };
+  const updateUserProfile = async () => { 
+      const res = await fetch(`${SOCKET_URL}/api/me`, { method: "PUT", headers: { "Content-Type": "application/json", Authorization: token! }, body: JSON.stringify({ username: editUserName, avatar: editUserAvatar, frame: selectedFrame, banner: selectedBanner }), }); 
+      if (res.ok) { 
+          const updated = await res.json(); 
+          setCurrentUser((prev: any) => ({ ...prev, ...updated })); 
+          // Update frame locally so we see it instantly
+          setCurrentUser((prev: any) => ({ ...prev, frame: selectedFrame, banner: selectedBanner }));
+          setShowUserSettings(false); 
+          alert("Updated! (Note: Frames need DB migration to save permanently)"); 
+      } 
+  };
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>, isUser: boolean) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onloadend = () => { if (isUser) setEditUserAvatar(reader.result as string); else setEditServerIcon(reader.result as string); }; reader.readAsDataURL(file); };
   const removeFriend = async (friendId: number) => { if (!token) return; if (!confirm("Remove?")) return; const res = await fetch(`${SOCKET_URL}/api/friends/${friendId}`, { method: "DELETE", headers: { Authorization: token }, }); if (res.ok) { setMyFriends((prev) => prev.filter((f) => f.id !== friendId)); if (activeDM?.id === friendId) setActiveDM(null); } };
   const kickMember = async (userId: number) => { if (!activeServerId || !token) return; if (!confirm("Kick?")) return; const res = await fetch(`${SOCKET_URL}/api/server/${activeServerId}/kick/${userId}`, { method: "DELETE", headers: { Authorization: token }, }); if (res.ok) selectServer(activeServerId); };
@@ -349,6 +338,16 @@ export default function EcoTalkApp() {
   const submitEdit = async (msgId: number) => { if(!editInputText.trim()) return; await fetch(`${SOCKET_URL}/api/messages/${msgId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': token! }, body: JSON.stringify({ content: editInputText }) }); setEditingMessageId(null); };
   const deleteMessage = async (msgId: number) => { if(!confirm("Delete?")) return; await fetch(`${SOCKET_URL}/api/messages/${msgId}`, { method: 'DELETE', headers: { 'Authorization': token! } }); };
   const toggleReaction = async (msgId: number, emoji: string) => { await fetch(`${SOCKET_URL}/api/messages/${msgId}/react`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': token! }, body: JSON.stringify({ emoji }) }); };
+  
+  // === NEW: CLICK HANDLER FOR VIEWING PROFILES ===
+  const handleUserClick = (user: any) => {
+      if (user.id === currentUser?.id) {
+          openUserProfile();
+      } else {
+          setViewingUserProfile(user);
+          playSound('click');
+      }
+  };
 
   if (!mounted) return <div className="h-screen flex items-center justify-center font-bold text-eco-900">EcoTalk Loading...</div>;
   if (!token) return <div className="h-screen flex items-center justify-center bg-gray-100 notranslate"><style>{THEME_STYLES}</style><div className="bg-white p-8 rounded-xl shadow-xl w-96"><h1 className="text-2xl font-bold text-center text-gray-900 mb-4">Login</h1><input className="w-full p-2 border rounded mb-2" placeholder="Username" value={authInput.username} onChange={e=>setAuthInput({...authInput, username:e.target.value})}/><input className="w-full p-2 border rounded mb-4" type="password" placeholder="Password" value={authInput.password} onChange={e=>setAuthInput({...authInput, password:e.target.value})}/><button onClick={handleAuth} className="w-full bg-green-600 text-white p-2 rounded">{authMode==='login'?'Login':'Register'}</button><p className="text-center mt-2 cursor-pointer text-sm" onClick={()=>setAuthMode(authMode==='login'?'register':'login')}>{authMode==='login'?'Need account?':'Have account?'}</p></div></div>;
@@ -396,7 +395,7 @@ export default function EcoTalkApp() {
                 ))}
               </>
             ) : (
-               myFriends.map(f => <div key={f.id} onClick={()=>selectDM(f)} className={`flex items-center p-2 rounded cursor-pointer ${activeDM?.id===f.id?'bg-[var(--bg-tertiary)]':''}`}><div className="relative w-8 h-8 flex-shrink-0 mr-2"><img src={f.avatar} className="rounded-full w-full h-full object-cover"/><div className={`absolute bottom-0 right-0 w-2.5 h-2.5 border-2 border-white rounded-full ${f.status==='online'?'bg-green-500':'bg-gray-400'}`}></div></div><div className="flex-1"><span className="block text-sm font-medium">{f.username}</span></div><Trash2 size={14} className="text-[var(--text-secondary)] hover:text-red-500" onClick={(e) => { e.stopPropagation(); removeFriend(f.id); }} /></div>)
+               myFriends.map(f => <div key={f.id} onClick={()=>selectDM(f)} className={`flex items-center p-2 rounded cursor-pointer ${activeDM?.id===f.id?'bg-[var(--bg-tertiary)]':''}`}><div className="relative w-8 h-8 flex-shrink-0 mr-2"><AvatarWithFrame url={f.avatar} frameId={f.frame} sizeClass="w-full h-full" isOnline={f.status==='online'}/></div><div className="flex-1"><span className="block text-sm font-medium">{f.username}</span></div><Trash2 size={14} className="text-[var(--text-secondary)] hover:text-red-500" onClick={(e) => { e.stopPropagation(); removeFriend(f.id); }} /></div>)
             )}
           </div>
           {activeVoiceChannel && (
@@ -409,7 +408,7 @@ export default function EcoTalkApp() {
                   </div>
               </div>
           )}
-          <div className="p-2 border-t border-[var(--border)] flex items-center bg-[var(--bg-tertiary)]"><img src={currentUser?.avatar} className="w-8 h-8 rounded-full mr-2"/><div className="font-bold text-sm">{currentUser?.username}</div><Settings size={16} className="ml-auto mr-2 cursor-pointer text-[var(--text-secondary)] hover:text-[var(--text-primary)]" onClick={openUserProfile}/><LogOut size={16} className="cursor-pointer text-red-500" onClick={handleLogout}/></div>
+          <div className="p-2 border-t border-[var(--border)] flex items-center bg-[var(--bg-tertiary)]"><div className="w-8 h-8 mr-2"><AvatarWithFrame url={currentUser?.avatar} frameId={currentUser?.frame} sizeClass="w-full h-full" isOnline={true}/></div><div className="font-bold text-sm">{currentUser?.username}</div><Settings size={16} className="ml-auto mr-2 cursor-pointer text-[var(--text-secondary)] hover:text-[var(--text-primary)]" onClick={openUserProfile}/><LogOut size={16} className="cursor-pointer text-red-500" onClick={handleLogout}/></div>
         </div>
 
         {/* MAIN AREA */}
@@ -427,9 +426,11 @@ export default function EcoTalkApp() {
                         <div key={m.id} className="group relative hover:bg-[var(--bg-secondary)] p-2 rounded transition-colors">
                            {showDate && <div className="flex justify-center my-4"><span className="text-xs text-[var(--text-secondary)] bg-[var(--bg-tertiary)] px-2 py-1 rounded-full border border-[var(--border)]">{formatDateHeader(m.createdAt)}</span></div>}
                            <div className="flex items-start relative">
-                              <img src={m.user?.avatar} className="w-10 h-10 rounded-full mr-3 mt-1"/>
+                              <div className="w-10 h-10 mr-3 mt-1 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => handleUserClick(m.user)}>
+                                  <AvatarWithFrame url={m.user?.avatar} frameId={m.user?.frame} sizeClass="w-full h-full" showStatus={false}/>
+                              </div>
                               <div className="flex-1 min-w-0">
-                                 <div className="flex items-baseline"><span className="font-bold text-sm mr-2 text-[var(--text-primary)]">{m.author}</span><span className="text-[10px] text-[var(--text-secondary)]">{new Date(m.createdAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span></div>
+                                 <div className="flex items-baseline"><span className="font-bold text-sm mr-2 text-[var(--text-primary)] cursor-pointer hover:underline" onClick={() => handleUserClick(m.user)}>{m.author}</span><span className="text-[10px] text-[var(--text-secondary)]">{new Date(m.createdAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span></div>
                                  {editingMessageId === m.id ? (<div className="mt-1"><input className="w-full border p-1 rounded text-sm bg-[var(--bg-tertiary)] text-[var(--text-primary)]" value={editInputText} onChange={e=>setEditInputText(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submitEdit(m.id)} autoFocus/><div className="text-[10px] text-[var(--text-secondary)] mt-1">Esc to cancel • Enter to save</div></div>) : (<div className="text-[var(--text-primary)] text-sm whitespace-pre-wrap">{m.content}</div>)}
                                  {m.imageUrl && (<img src={m.imageUrl} className="mt-2 rounded-lg max-w-sm cursor-zoom-in hover:opacity-90 transition-opacity" onClick={() => setViewingImage(m.imageUrl)} />)}
                                  <div className="flex flex-wrap gap-1 mt-1">{m.reactions?.map((r:any) => (<div key={r.id} className="bg-[var(--bg-tertiary)] px-1.5 py-0.5 rounded text-[10px] border border-[var(--border)] text-[var(--text-secondary)]" title={r.user.username}>{r.emoji}</div>))}</div>
@@ -446,169 +447,129 @@ export default function EcoTalkApp() {
              </>
           )}
         </div>
-        {activeServerId && showMembersPanel && (<div className="w-60 bg-[var(--bg-secondary)] border-l border-[var(--border)] p-3 hidden lg:block overflow-y-auto"><h3 className="text-xs font-bold text-[var(--text-secondary)] mb-2">MEMBERS — {currentServerMembers.length}</h3>{currentServerMembers.map(member => (<div key={member.id} className="flex items-center justify-between group p-2 hover:bg-[var(--bg-tertiary)] rounded cursor-pointer" onClick={() => selectDM(member)}><div className="flex items-center gap-2"><div className="relative w-8 h-8 flex-shrink-0"><img src={member.avatar} className="rounded-full w-full h-full object-cover"/><div className={`absolute bottom-0 right-0 w-2.5 h-2.5 border-2 border-white rounded-full ${member.status==='online'?'bg-green-500':'bg-gray-400'}`}></div></div><div className="flex flex-col"><span className={`font-medium text-sm leading-tight ${member.id === activeServerData?.ownerId ? 'text-yellow-600' : 'text-[var(--text-primary)]'}`}>{member.username}</span></div></div></div>))}</div>)}
+        {activeServerId && showMembersPanel && (
+            <div className="w-60 bg-[var(--bg-secondary)] border-l border-[var(--border)] p-3 hidden lg:block overflow-y-auto">
+                <h3 className="text-xs font-bold text-[var(--text-secondary)] mb-2">MEMBERS — {currentServerMembers.length}</h3>
+                {currentServerMembers.map(member => (
+                    <div key={member.id} className={`flex items-center justify-between group p-2 mb-1 rounded cursor-pointer transition-colors hover:bg-[var(--bg-tertiary)] relative overflow-hidden`} onClick={() => handleUserClick(member)}>
+                        {/* Member Background from Banner */}
+                        {member.banner && member.banner !== 'default' && (
+                            <div className={`absolute inset-0 opacity-10 pointer-events-none ${AVAILABLE_BANNERS.find(b=>b.id===member.banner)?.color}`}></div>
+                        )}
+                        
+                        <div className="flex items-center gap-2 relative z-10">
+                            <div className="relative w-8 h-8 flex-shrink-0">
+                                <AvatarWithFrame url={member.avatar} frameId={member.frame} sizeClass="w-full h-full" isOnline={member.status==='online'}/>
+                            </div>
+                            <div className="flex flex-col">
+                                <span className={`font-medium text-sm leading-tight ${member.id === activeServerData?.ownerId ? 'text-yellow-600' : 'text-[var(--text-primary)]'}`}>{member.username}</span>
+                            </div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        )}
         {showServerSettings && <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50"><div className="bg-white p-6 rounded-xl w-96 shadow-2xl"><div className="flex items-center justify-between mb-4"><h3 className="font-bold text-xl text-gray-900">Server Settings</h3><button className="text-sm text-gray-500" onClick={()=>setShowServerSettings(false)}>Close</button></div><label className="text-xs font-bold text-gray-500">ICON</label><div className="flex items-center gap-4 mb-4"><div className="w-16 h-16 rounded-xl bg-gray-200 overflow-hidden flex items-center justify-center">{editServerIcon ? <img src={editServerIcon} className="w-full h-full object-cover"/> : <span className="text-2xl font-bold text-gray-400">{editServerName?.[0]}</span>}</div><input type="file" ref={serverIconInputRef} hidden accept="image/*" onChange={(e)=>handleAvatarUpload(e, false)}/><button onClick={()=>serverIconInputRef.current?.click()} className="text-sm text-green-600 hover:underline">Change</button></div><label className="text-xs font-bold text-gray-500">NAME</label><input className="w-full border p-2 rounded mb-4" value={editServerName} onChange={e=>setEditServerName(e.target.value)}/><label className="text-xs font-bold text-gray-500">DESCRIPTION</label><textarea className="w-full border p-2 rounded mb-6 h-20 resize-none" value={editServerDesc} onChange={e=>setEditServerDesc(e.target.value)}/><div className="flex justify-between gap-2"><button onClick={openServerSettings} className="text-sm text-gray-500 hover:underline">Refresh</button><div className="flex gap-2"><button onClick={deleteServer} className="px-4 py-2 text-white bg-red-600 rounded">Delete</button><button onClick={updateServer} className="px-4 py-2 text-white bg-green-600 rounded">Save</button></div></div></div></div>}
         {editingChannel && <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50"><div className="bg-white p-6 rounded-xl w-80 shadow-2xl"><h3 className="font-bold text-xl mb-4 text-gray-900">Edit Channel</h3><input className="w-full border p-2 rounded mb-4" value={newChannelName} onChange={e=>setNewChannelName(e.target.value)}/><div className="flex justify-between"><button onClick={deleteChannel} className="text-red-500 text-sm hover:underline flex items-center"><Trash2 size={14} className="mr-1"/> Delete</button><div className="flex gap-2"><button onClick={()=>setEditingChannel(null)}>Cancel</button><button onClick={updateChannel} className="bg-green-600 text-white px-4 py-2 rounded">Save</button></div></div></div></div>}
         
+        {/* ===== VIEW OTHER USER PROFILE MODAL ===== */}
+        {viewingUserProfile && (
+            <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-[70] backdrop-blur-sm" onClick={() => setViewingUserProfile(null)}>
+                <div className="bg-[var(--modal-bg)] w-[350px] rounded-xl shadow-2xl overflow-hidden border border-[var(--border)] animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+                    <div className={`h-24 w-full ${AVAILABLE_BANNERS.find(b=>b.id===viewingUserProfile.banner)?.color || 'bg-gray-600'}`}></div>
+                    <div className="px-4 pb-4 relative">
+                        <div className="relative -mt-12 mb-2 inline-block">
+                            <div className={`w-24 h-24 rounded-full overflow-hidden border-4 border-[var(--modal-bg)] bg-white relative z-10`}>
+                                <AvatarWithFrame url={viewingUserProfile.avatar} frameId={viewingUserProfile.frame} sizeClass="w-full h-full" showStatus={false}/>
+                            </div>
+                            <div className={`absolute bottom-1 right-1 w-6 h-6 border-4 border-[var(--modal-bg)] rounded-full z-20 ${viewingUserProfile.status==='online' ? 'bg-green-500' : 'bg-gray-400'}`}></div>
+                        </div>
+                        <h3 className="text-xl font-bold text-[var(--text-primary)]">{viewingUserProfile.username}</h3>
+                        <p className="text-xs text-[var(--text-secondary)] font-medium mb-4">#{viewingUserProfile.id.toString().padStart(4, '0')}</p>
+                        
+                        <div className="border-t border-[var(--border)] pt-2 mb-4">
+                            <h4 className="text-xs font-bold text-[var(--text-secondary)] mb-1">MEMBER SINCE</h4>
+                            <div className="text-sm text-[var(--text-primary)]">{new Date(viewingUserProfile.createdAt || Date.now()).toLocaleDateString()}</div>
+                        </div>
+
+                        {viewingUserProfile.id !== currentUser?.id && (
+                            <button onClick={() => { selectDM(viewingUserProfile); setViewingUserProfile(null); }} className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 rounded-lg transition-colors flex items-center justify-center gap-2">
+                                <MessageSquare size={18}/> Send Message
+                            </button>
+                        )}
+                    </div>
+                </div>
+            </div>
+        )}
+
         {/* ===== SETTINGS MODAL ===== */}
         {showUserSettings && (
           <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-[60] backdrop-blur-sm">
             <div className="bg-[var(--modal-bg)] w-[800px] h-[550px] rounded-xl shadow-2xl flex overflow-hidden border border-[var(--border)] animate-in zoom-in-95 duration-200">
-                {/* SIDEBAR */}
                 <div className="w-60 bg-[var(--sidebar-bg)] p-4 border-r border-[var(--border)] flex flex-col gap-1">
                     <h2 className="text-xs font-bold text-[var(--text-secondary)] mb-2 px-2">USER SETTINGS</h2>
                     <button onClick={() => setSettingsTab('profile')} className={`text-left px-3 py-2 rounded text-sm font-medium flex items-center gap-2 transition-colors ${settingsTab==='profile' ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'}`}><User size={16}/> My Account</button>
                     <button onClick={() => setSettingsTab('appearance')} className={`text-left px-3 py-2 rounded text-sm font-medium flex items-center gap-2 transition-colors ${settingsTab==='appearance' ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'}`}><Palette size={16}/> Appearance</button>
                     <button onClick={() => setSettingsTab('audio')} className={`text-left px-3 py-2 rounded text-sm font-medium flex items-center gap-2 transition-colors ${settingsTab==='audio' ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'}`}><Speaker size={16}/> Audio & Video</button>
                     <button onClick={() => setSettingsTab('hotkeys')} className={`text-left px-3 py-2 rounded text-sm font-medium flex items-center gap-2 transition-colors ${settingsTab==='hotkeys' ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'}`}><Keyboard size={16}/> Hotkeys</button>
-                    <div className="mt-auto pt-4 border-t border-[var(--border)]">
-                        <button onClick={closeSettings} className="w-full text-left px-3 py-2 rounded text-sm font-medium text-red-500 hover:bg-red-50 flex items-center gap-2"><LogOut size={16}/> Close Settings</button>
-                    </div>
+                    <div className="mt-auto pt-4 border-t border-[var(--border)]"><button onClick={closeSettings} className="w-full text-left px-3 py-2 rounded text-sm font-medium text-red-500 hover:bg-red-50 flex items-center gap-2"><LogOut size={16}/> Close Settings</button></div>
                 </div>
-
-                {/* CONTENT AREA */}
                 <div className="flex-1 bg-[var(--bg-primary)] p-8 overflow-y-auto text-[var(--text-primary)] relative">
                     <button onClick={closeSettings} className="absolute top-4 right-4 text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-2 rounded-full hover:bg-[var(--bg-tertiary)]"><X size={24}/></button>
-
                     {settingsTab === 'profile' && (
                         <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
                             <h2 className="text-xl font-bold mb-6">My Profile</h2>
-                            
-                            {/* --- PROFILE CARD PREVIEW --- */}
                             <div className="rounded-xl overflow-hidden shadow-lg border border-[var(--border)] bg-[var(--modal-bg)] mb-8 max-w-sm mx-auto">
                                 <div className={`h-24 w-full ${AVAILABLE_BANNERS.find(b=>b.id===selectedBanner)?.color || 'bg-gray-600'}`}></div>
                                 <div className="px-4 pb-4 relative">
                                     <div className="relative -mt-12 mb-2 inline-block">
                                         <div className="relative">
-                                            <div className={`w-24 h-24 rounded-full overflow-hidden border-4 border-[var(--modal-bg)] bg-white relative z-10 ${AVAILABLE_FRAMES.find(f=>f.id===selectedFrame)?.css}`}>
-                                                <img src={currentUser?.avatar} className="w-full h-full object-cover"/>
+                                            <div className={`w-24 h-24 rounded-full overflow-hidden border-4 border-[var(--modal-bg)] bg-white relative z-10`}>
+                                                <AvatarWithFrame url={currentUser?.avatar} frameId={selectedFrame} sizeClass="w-full h-full" showStatus={false}/>
                                             </div>
                                             <div className="absolute bottom-1 right-1 w-6 h-6 bg-green-500 border-4 border-[var(--modal-bg)] rounded-full z-20" title="Online"></div>
                                         </div>
                                     </div>
                                     <h3 className="text-xl font-bold text-[var(--text-primary)]">{editUserName || currentUser?.username}</h3>
                                     <p className="text-xs text-[var(--text-secondary)] font-medium">#{currentUser?.id.toString().padStart(4, '0')}</p>
-                                    
-                                    <div className="mt-4 border-t border-[var(--border)] pt-2">
-                                        <h4 className="text-xs font-bold text-[var(--text-secondary)] mb-1">ABOUT ME</h4>
-                                        <div className="text-sm">Just chillin' in EcoTalk.</div>
-                                    </div>
                                 </div>
                             </div>
-
-                            {/* --- CUSTOMIZATION OPTIONS --- */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div>
-                                    <label className="text-xs font-bold text-[var(--text-secondary)] block mb-2">AVATAR</label>
-                                    <button onClick={() => avatarInputRef.current?.click()} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-bold w-full transition-colors">Upload New Avatar</button>
-                                    <input type="file" ref={avatarInputRef} hidden accept="image/*" onChange={(e) => handleAvatarUpload(e, true)} />
-                                </div>
-                                <div>
-                                    <label className="text-xs font-bold text-[var(--text-secondary)] block mb-2">USERNAME</label>
-                                    <input className="w-full bg-[var(--bg-tertiary)] border border-[var(--border)] rounded p-2 text-sm outline-none focus:border-green-500" value={editUserName} onChange={e=>setEditUserName(e.target.value)}/>
-                                </div>
+                                <div><label className="text-xs font-bold text-[var(--text-secondary)] block mb-2">AVATAR</label><button onClick={() => avatarInputRef.current?.click()} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-bold w-full transition-colors">Upload New Avatar</button><input type="file" ref={avatarInputRef} hidden accept="image/*" onChange={(e) => handleAvatarUpload(e, true)} /></div>
+                                <div><label className="text-xs font-bold text-[var(--text-secondary)] block mb-2">USERNAME</label><input className="w-full bg-[var(--bg-tertiary)] border border-[var(--border)] rounded p-2 text-sm outline-none focus:border-green-500" value={editUserName} onChange={e=>setEditUserName(e.target.value)}/></div>
                             </div>
-
-                            <div className="mt-6">
-                                <label className="text-xs font-bold text-[var(--text-secondary)] block mb-2 flex items-center"><Sparkles size={14} className="mr-1 text-yellow-500"/> PROFILE FRAME</label>
-                                <div className="flex gap-2 overflow-x-auto pb-2">
-                                    {AVAILABLE_FRAMES.map(frame => (
-                                        <div key={frame.id} onClick={() => setSelectedFrame(frame.id)} className={`flex-shrink-0 w-16 h-16 rounded-xl border-2 cursor-pointer flex items-center justify-center bg-[var(--bg-tertiary)] transition-all ${selectedFrame === frame.id ? 'border-green-500 bg-green-50' : 'border-[var(--border)] hover:border-gray-400'}`}>
-                                            <div className={`w-10 h-10 rounded-full bg-gray-300 ${frame.css}`}></div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-
-                            <div className="mt-4">
-                                <label className="text-xs font-bold text-[var(--text-secondary)] block mb-2 flex items-center"><ImageIcon size={14} className="mr-1 text-blue-500"/> PROFILE BANNER</label>
-                                <div className="flex gap-2 overflow-x-auto pb-2">
-                                    {AVAILABLE_BANNERS.map(banner => (
-                                        <div key={banner.id} onClick={() => setSelectedBanner(banner.id)} className={`flex-shrink-0 w-16 h-12 rounded-lg cursor-pointer transition-all border-2 ${banner.color} ${selectedBanner === banner.id ? 'border-white ring-2 ring-green-500' : 'border-transparent hover:opacity-80'}`}></div>
-                                    ))}
-                                </div>
-                            </div>
-
-                            <div className="flex justify-end mt-6 pt-4 border-t border-[var(--border)]">
-                                <button onClick={updateUserProfile} className="bg-green-600 text-white px-6 py-2 rounded font-bold hover:bg-green-700 transition-colors shadow-lg shadow-green-500/30">Save Changes</button>
-                            </div>
+                            <div className="mt-6"><label className="text-xs font-bold text-[var(--text-secondary)] block mb-2 flex items-center"><Sparkles size={14} className="mr-1 text-yellow-500"/> PROFILE FRAME</label><div className="flex gap-2 overflow-x-auto pb-2">{AVAILABLE_FRAMES.map(frame => (<div key={frame.id} onClick={() => setSelectedFrame(frame.id)} className={`flex-shrink-0 w-16 h-16 rounded-xl border-2 cursor-pointer flex items-center justify-center bg-[var(--bg-tertiary)] transition-all ${selectedFrame === frame.id ? 'border-green-500 bg-green-50' : 'border-[var(--border)] hover:border-gray-400'}`}><div className={`w-10 h-10 rounded-full bg-gray-300 ${frame.css}`}></div></div>))}</div></div>
+                            <div className="mt-4"><label className="text-xs font-bold text-[var(--text-secondary)] block mb-2 flex items-center"><ImageIcon size={14} className="mr-1 text-blue-500"/> PROFILE BANNER</label><div className="flex gap-2 overflow-x-auto pb-2">{AVAILABLE_BANNERS.map(banner => (<div key={banner.id} onClick={() => setSelectedBanner(banner.id)} className={`flex-shrink-0 w-16 h-12 rounded-lg cursor-pointer transition-all border-2 ${banner.color} ${selectedBanner === banner.id ? 'border-white ring-2 ring-green-500' : 'border-transparent hover:opacity-80'}`}></div>))}</div></div>
+                            <div className="flex justify-end mt-6 pt-4 border-t border-[var(--border)]"><button onClick={updateUserProfile} className="bg-green-600 text-white px-6 py-2 rounded font-bold hover:bg-green-700 transition-colors shadow-lg shadow-green-500/30">Save Changes</button></div>
                         </div>
                     )}
-
                     {settingsTab === 'appearance' && (
                          <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
                              <h2 className="text-xl font-bold mb-6">Appearance</h2>
                              <div className="space-y-4">
-                                 <div onClick={() => setTheme('minimal')} className={`cursor-pointer border-2 rounded-xl p-4 flex items-center gap-4 transition-all ${theme==='minimal' ? 'border-green-500 bg-green-50/50' : 'border-[var(--border)] hover:border-gray-400'}`}>
-                                     <div className="w-12 h-12 bg-white rounded-full border border-gray-200 shadow-sm flex items-center justify-center">Aa</div>
-                                     <div><div className="font-bold text-gray-900">Minimal (Light)</div><div className="text-xs text-gray-500">Clean and bright interface</div></div>
-                                     {theme==='minimal' && <Check className="ml-auto text-green-600"/>}
-                                 </div>
-                                 <div onClick={() => setTheme('neon')} className={`cursor-pointer border-2 rounded-xl p-4 flex items-center gap-4 transition-all ${theme==='neon' ? 'border-cyan-500 bg-slate-900/10' : 'border-[var(--border)] hover:border-gray-400'}`}>
-                                     <div className="w-12 h-12 bg-slate-900 rounded-full border border-cyan-500 shadow-sm flex items-center justify-center text-cyan-400">Aa</div>
-                                     <div><div className="font-bold text-[var(--text-primary)]">Neon (Dark)</div><div className="text-xs text-[var(--text-secondary)]">High contrast for gamers</div></div>
-                                     {theme==='neon' && <Check className="ml-auto text-cyan-500"/>}
-                                 </div>
-                                 <div onClick={() => setTheme('vintage')} className={`cursor-pointer border-2 rounded-xl p-4 flex items-center gap-4 transition-all ${theme==='vintage' ? 'border-amber-600 bg-amber-50' : 'border-[var(--border)] hover:border-gray-400'}`}>
-                                     <div className="w-12 h-12 bg-[#fffbeb] rounded-full border border-amber-900 shadow-sm flex items-center justify-center text-amber-900 font-serif">Aa</div>
-                                     <div><div className="font-bold text-amber-900">Vintage</div><div className="text-xs text-amber-700">Warm and cozy serif style</div></div>
-                                     {theme==='vintage' && <Check className="ml-auto text-amber-600"/>}
-                                 </div>
+                                 <div onClick={() => setTheme('minimal')} className={`cursor-pointer border-2 rounded-xl p-4 flex items-center gap-4 transition-all ${theme==='minimal' ? 'border-green-500 bg-green-50/50' : 'border-[var(--border)] hover:border-gray-400'}`}><div className="w-12 h-12 bg-white rounded-full border border-gray-200 shadow-sm flex items-center justify-center">Aa</div><div><div className="font-bold text-gray-900">Minimal (Light)</div><div className="text-xs text-gray-500">Clean and bright interface</div></div>{theme==='minimal' && <Check className="ml-auto text-green-600"/>}</div>
+                                 <div onClick={() => setTheme('neon')} className={`cursor-pointer border-2 rounded-xl p-4 flex items-center gap-4 transition-all ${theme==='neon' ? 'border-cyan-500 bg-slate-900/10' : 'border-[var(--border)] hover:border-gray-400'}`}><div className="w-12 h-12 bg-slate-900 rounded-full border border-cyan-500 shadow-sm flex items-center justify-center text-cyan-400">Aa</div><div><div className="font-bold text-[var(--text-primary)]">Neon (Dark)</div><div className="text-xs text-[var(--text-secondary)]">High contrast for gamers</div></div>{theme==='neon' && <Check className="ml-auto text-cyan-500"/>}</div>
+                                 <div onClick={() => setTheme('vintage')} className={`cursor-pointer border-2 rounded-xl p-4 flex items-center gap-4 transition-all ${theme==='vintage' ? 'border-amber-600 bg-amber-50' : 'border-[var(--border)] hover:border-gray-400'}`}><div className="w-12 h-12 bg-[#fffbeb] rounded-full border border-amber-900 shadow-sm flex items-center justify-center text-amber-900 font-serif">Aa</div><div><div className="font-bold text-amber-900">Vintage</div><div className="text-xs text-amber-700">Warm and cozy serif style</div></div>{theme==='vintage' && <Check className="ml-auto text-amber-600"/>}</div>
                              </div>
                          </div>
                     )}
-
                     {settingsTab === 'audio' && (
                         <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
                             <h2 className="text-xl font-bold mb-6">Voice & Video</h2>
                             <div className="space-y-6">
-                                <div>
-                                    <label className="text-xs font-bold text-[var(--text-secondary)] block mb-2">INPUT DEVICE</label>
-                                    <select className="w-full p-2.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border)] text-sm outline-none" value={selectedMicId} onChange={(e) => saveAudioSettings(e.target.value, selectedSpeakerId, enableNoiseSuppression, soundEnabled, voiceThreshold)}><option value="">Default System Microphone</option>{audioInputs.map(d => <option key={d.deviceId} value={d.deviceId}>{d.label || `Microphone ${d.deviceId}`}</option>)}</select>
-                                </div>
-                                <div>
-                                    <label className="text-xs font-bold text-[var(--text-secondary)] block mb-2">OUTPUT DEVICE</label>
-                                    <select className="w-full p-2.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border)] text-sm outline-none" value={selectedSpeakerId} onChange={(e) => saveAudioSettings(selectedMicId, e.target.value, enableNoiseSuppression, soundEnabled, voiceThreshold)}><option value="">Default System Speakers</option>{audioOutputs.map(d => <option key={d.deviceId} value={d.deviceId}>{d.label || `Speaker ${d.deviceId}`}</option>)}</select>
-                                </div>
-                                <div className="border-t border-[var(--border)] pt-4">
-                                    <div className="flex items-center justify-between mb-4">
-                                        <div><div className="font-bold text-sm">Mic Test</div><div className="text-xs text-[var(--text-secondary)]">Check how you sound to others</div></div>
-                                        <button onClick={toggleMicTest} className={`px-4 py-1.5 rounded text-sm font-bold transition-colors ${isTestingMic ? 'bg-red-500 text-white' : 'bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-gray-300'}`}>{isTestingMic ? "Stop Testing" : "Let's Check"}</button>
-                                        <audio ref={testAudioRef} hidden />
-                                    </div>
-                                    {isTestingMic && <div className="w-full bg-[var(--bg-tertiary)] h-2 rounded-full overflow-hidden"><div className="h-full bg-green-500 animate-[pulse_0.5s_infinite]"></div></div>}
-                                </div>
+                                <div><label className="text-xs font-bold text-[var(--text-secondary)] block mb-2">INPUT DEVICE</label><select className="w-full p-2.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border)] text-sm outline-none" value={selectedMicId} onChange={(e) => saveAudioSettings(e.target.value, selectedSpeakerId, enableNoiseSuppression, soundEnabled, voiceThreshold)}><option value="">Default System Microphone</option>{audioInputs.map(d => <option key={d.deviceId} value={d.deviceId}>{d.label || `Microphone ${d.deviceId}`}</option>)}</select></div>
+                                <div><label className="text-xs font-bold text-[var(--text-secondary)] block mb-2">OUTPUT DEVICE</label><select className="w-full p-2.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border)] text-sm outline-none" value={selectedSpeakerId} onChange={(e) => saveAudioSettings(selectedMicId, e.target.value, enableNoiseSuppression, soundEnabled, voiceThreshold)}><option value="">Default System Speakers</option>{audioOutputs.map(d => <option key={d.deviceId} value={d.deviceId}>{d.label || `Speaker ${d.deviceId}`}</option>)}</select></div>
+                                <div className="border-t border-[var(--border)] pt-4"><div className="flex items-center justify-between mb-4"><div><div className="font-bold text-sm">Mic Test</div><div className="text-xs text-[var(--text-secondary)]">Check how you sound to others</div></div><button onClick={toggleMicTest} className={`px-4 py-1.5 rounded text-sm font-bold transition-colors ${isTestingMic ? 'bg-red-500 text-white' : 'bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-gray-300'}`}>{isTestingMic ? "Stop Testing" : "Let's Check"}</button><audio ref={testAudioRef} hidden /></div>{isTestingMic && <div className="w-full bg-[var(--bg-tertiary)] h-2 rounded-full overflow-hidden"><div className="h-full bg-green-500 animate-[pulse_0.5s_infinite]"></div></div>}</div>
                                 <div className="border-t border-[var(--border)] pt-4 space-y-4">
-                                     <div className="flex items-center justify-between">
-                                         <div><div className="font-bold text-sm flex items-center gap-2">{enableNoiseSuppression ? <Zap size={14} className="text-yellow-500"/> : <ZapOff size={14}/>} AI Noise Suppression</div><div className="text-xs text-[var(--text-secondary)]">Remove background noise</div></div>
-                                         <div onClick={() => saveAudioSettings(selectedMicId, selectedSpeakerId, !enableNoiseSuppression, soundEnabled, voiceThreshold)} className={`w-10 h-5 rounded-full relative cursor-pointer transition-colors ${enableNoiseSuppression ? 'bg-green-500' : 'bg-gray-400'}`}><div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${enableNoiseSuppression ? 'left-6' : 'left-1'}`}></div></div>
-                                     </div>
-                                     <div className="flex items-center justify-between">
-                                         <div><div className="font-bold text-sm flex items-center gap-2">{soundEnabled ? <Volume1 size={14} className="text-blue-500"/> : <VolumeX size={14}/>} Sound Effects</div><div className="text-xs text-[var(--text-secondary)]">Play sounds for messages and joining</div></div>
-                                         <div onClick={() => saveAudioSettings(selectedMicId, selectedSpeakerId, enableNoiseSuppression, !soundEnabled, voiceThreshold)} className={`w-10 h-5 rounded-full relative cursor-pointer transition-colors ${soundEnabled ? 'bg-green-500' : 'bg-gray-400'}`}><div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${soundEnabled ? 'left-6' : 'left-1'}`}></div></div>
-                                     </div>
+                                     <div className="flex items-center justify-between"><div><div className="font-bold text-sm flex items-center gap-2">{enableNoiseSuppression ? <Zap size={14} className="text-yellow-500"/> : <ZapOff size={14}/>} AI Noise Suppression</div><div className="text-xs text-[var(--text-secondary)]">Remove background noise</div></div><div onClick={() => saveAudioSettings(selectedMicId, selectedSpeakerId, !enableNoiseSuppression, soundEnabled, voiceThreshold)} className={`w-10 h-5 rounded-full relative cursor-pointer transition-colors ${enableNoiseSuppression ? 'bg-green-500' : 'bg-gray-400'}`}><div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${enableNoiseSuppression ? 'left-6' : 'left-1'}`}></div></div></div>
+                                     <div className="flex items-center justify-between"><div><div className="font-bold text-sm flex items-center gap-2">{soundEnabled ? <Volume1 size={14} className="text-blue-500"/> : <VolumeX size={14}/>} Sound Effects</div><div className="text-xs text-[var(--text-secondary)]">Play sounds for messages and joining</div></div><div onClick={() => saveAudioSettings(selectedMicId, selectedSpeakerId, enableNoiseSuppression, !soundEnabled, voiceThreshold)} className={`w-10 h-5 rounded-full relative cursor-pointer transition-colors ${soundEnabled ? 'bg-green-500' : 'bg-gray-400'}`}><div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${soundEnabled ? 'left-6' : 'left-1'}`}></div></div></div>
                                 </div>
-                                <div className="border-t border-[var(--border)] pt-4">
-                                     <div className="flex justify-between items-center mb-2"><label className="text-xs font-bold text-[var(--text-secondary)]">VOICE SENSITIVITY</label><span className="text-xs font-mono bg-[var(--bg-tertiary)] px-2 py-0.5 rounded">{voiceThreshold}%</span></div>
-                                     <input type="range" min="0" max="100" value={voiceThreshold} onChange={(e) => saveAudioSettings(selectedMicId, selectedSpeakerId, enableNoiseSuppression, soundEnabled, Number(e.target.value))} className="w-full h-2 bg-[var(--bg-tertiary)] rounded-lg appearance-none cursor-pointer accent-green-500"/>
-                                </div>
+                                <div className="border-t border-[var(--border)] pt-4"><div className="flex justify-between items-center mb-2"><label className="text-xs font-bold text-[var(--text-secondary)]">VOICE SENSITIVITY</label><span className="text-xs font-mono bg-[var(--bg-tertiary)] px-2 py-0.5 rounded">{voiceThreshold}%</span></div><input type="range" min="0" max="100" value={voiceThreshold} onChange={(e) => saveAudioSettings(selectedMicId, selectedSpeakerId, enableNoiseSuppression, soundEnabled, Number(e.target.value))} className="w-full h-2 bg-[var(--bg-tertiary)] rounded-lg appearance-none cursor-pointer accent-green-500"/></div>
                             </div>
                         </div>
                     )}
-
                     {settingsTab === 'hotkeys' && (
-                        <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-                             <h2 className="text-xl font-bold mb-6">Keybinds</h2>
-                             <div className="bg-[var(--bg-tertiary)] rounded-xl p-4 border border-[var(--border)] flex items-center justify-between">
-                                 <div>
-                                     <div className="font-bold text-sm">Toggle Mute</div>
-                                     <div className="text-xs text-[var(--text-secondary)]">Push to mute/unmute microphone</div>
-                                 </div>
-                                 <button onClick={() => setIsRecordingKey(true)} className={`min-w-[100px] px-4 py-2 rounded border-2 font-mono text-sm font-bold transition-all ${isRecordingKey ? 'border-red-500 text-red-500 bg-red-50' : (muteKey ? 'border-gray-400 text-[var(--text-primary)] bg-white' : 'border-dashed border-gray-400 text-gray-400')}`}>
-                                     {isRecordingKey ? "Press Key..." : (muteKey || "NONE")}
-                                 </button>
-                             </div>
-                        </div>
+                        <div className="animate-in fade-in slide-in-from-bottom-2 duration-300"><h2 className="text-xl font-bold mb-6">Keybinds</h2><div className="bg-[var(--bg-tertiary)] rounded-xl p-4 border border-[var(--border)] flex items-center justify-between"><div><div className="font-bold text-sm">Toggle Mute</div><div className="text-xs text-[var(--text-secondary)]">Push to mute/unmute microphone</div></div><button onClick={() => setIsRecordingKey(true)} className={`min-w-[100px] px-4 py-2 rounded border-2 font-mono text-sm font-bold transition-all ${isRecordingKey ? 'border-red-500 text-red-500 bg-red-50' : (muteKey ? 'border-gray-400 text-[var(--text-primary)] bg-white' : 'border-dashed border-gray-400 text-gray-400')}`}>{isRecordingKey ? "Press Key..." : (muteKey || "NONE")}</button></div></div>
                     )}
                 </div>
             </div>
