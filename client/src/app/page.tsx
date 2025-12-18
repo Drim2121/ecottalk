@@ -12,20 +12,21 @@ import io, { Socket } from "socket.io-client";
 import Peer from "simple-peer";
 
 // ===== CONSTANTS =====
-const SOCKET_URL = "http://5.129.215.82:3001";
+const SOCKET_URL = "http://5.129.215.82:3001"; // Замените на ваш домен https://...
 
 // ===== COSMETICS DATA =====
 const AVAILABLE_FRAMES = [
-  { id: 'none', name: 'No Frame', css: 'border-2 border-gray-700' },
-  { id: 'gold', name: 'Golden Legend', css: 'ring-4 ring-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.6)] border-2 border-yellow-200' },
-  { id: 'neon', name: 'Cyberpunk', css: 'ring-4 ring-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.8)] border-2 border-white' },
-  { id: 'ruby', name: 'Ruby Master', css: 'ring-4 ring-red-600 shadow-[0_0_15px_rgba(220,38,38,0.6)] border-2 border-red-400' },
-  { id: 'nature', name: 'Eco Warrior', css: 'ring-4 ring-green-500 border-2 border-emerald-900 border-dashed' },
-  { id: 'fire', name: 'Inferno', css: 'ring-4 ring-orange-500 shadow-[0_0_20px_rgba(249,115,22,0.8)] animate-pulse' },
+  { id: 'none', name: 'No Frame', css: 'border border-white/10' },
+  { id: 'gold', name: 'Golden Legend', css: 'ring-[3px] ring-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.6)] border-2 border-yellow-200' },
+  { id: 'neon', name: 'Cyberpunk', css: 'ring-[3px] ring-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.8)] border-2 border-white' },
+  { id: 'ruby', name: 'Ruby Master', css: 'ring-[3px] ring-red-600 shadow-[0_0_15px_rgba(220,38,38,0.6)] border-2 border-red-400' },
+  { id: 'nature', name: 'Eco Warrior', css: 'ring-[3px] ring-green-500 border-2 border-emerald-900 border-dashed' },
+  { id: 'fire', name: 'Inferno', css: 'ring-[3px] ring-orange-500 shadow-[0_0_20px_rgba(249,115,22,0.8)] animate-pulse' },
 ];
 
 const AVAILABLE_BANNERS = [
-  { id: 'default', color: 'bg-gray-700' },
+  { id: 'default', color: 'bg-transparent' }, // Прозрачный по умолчанию
+  { id: 'gray', color: 'bg-gray-700' },
   { id: 'blue', color: 'bg-blue-600' },
   { id: 'purple', color: 'bg-purple-600' },
   { id: 'gold', color: 'bg-gradient-to-r from-yellow-600 to-yellow-300' },
@@ -44,9 +45,9 @@ const THEME_STYLES = `
   input[type=range] { -webkit-appearance: none; background: transparent; }
   input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 14px; width: 14px; border-radius: 50%; background: white; cursor: pointer; margin-top: -5px; box-shadow: 0 0 2px rgba(0,0,0,0.5); }
   input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; cursor: pointer; background: rgba(255,255,255,0.3); border-radius: 2px; }
-  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: rgba(156, 163, 175, 0.5); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb { background: rgba(156, 163, 175, 0.5); border-radius: 3px; }
   ::-webkit-scrollbar-thumb:hover { background: rgba(156, 163, 175, 0.8); }
 `;
 
@@ -78,14 +79,19 @@ const useProcessedStream = (rawStream: MediaStream | null, threshold: number, is
     return processedStream;
 };
 
-// --- UNIVERSAL AVATAR COMPONENT ---
+// --- UNIVERSAL AVATAR COMPONENT (UPDATED) ---
 const AvatarWithFrame = ({ url, frameId, sizeClass = "w-10 h-10", isOnline = false, showStatus = true }: { url: string, frameId?: string, sizeClass?: string, isOnline?: boolean, showStatus?: boolean }) => {
     const frame = AVAILABLE_FRAMES.find(f => f.id === (frameId || 'none')) || AVAILABLE_FRAMES[0];
     return (
         <div className={`relative ${sizeClass} flex-shrink-0`}>
+            {/* Frame */}
             <div className={`absolute inset-0 rounded-full ${frame.css} pointer-events-none z-10`}></div>
+            {/* Image */}
             <img src={url} className="w-full h-full rounded-full object-cover" alt="avatar" />
-            {showStatus && <div className={`absolute bottom-0 right-0 w-[25%] h-[25%] border-2 border-[var(--bg-primary)] rounded-full z-20 ${isOnline ? 'bg-green-500' : 'bg-gray-400'}`}></div>}
+            {/* Status Dot - BIGGER AND BORDERED */}
+            {showStatus && (
+                <div className={`absolute bottom-0 right-0 w-3.5 h-3.5 border-2 border-[var(--bg-primary)] rounded-full z-20 ${isOnline ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.8)]' : 'bg-gray-500'}`}></div>
+            )}
         </div>
     );
 };
@@ -312,8 +318,10 @@ export default function EcoTalkApp() {
           setCurrentUser((prev: any) => ({ ...prev, ...updated })); 
           // Update frame locally so we see it instantly
           setCurrentUser((prev: any) => ({ ...prev, frame: selectedFrame, banner: selectedBanner }));
+          // Update in member list locally for instant feedback
+          setCurrentServerMembers(prev => prev.map(m => m.id === updated.id ? { ...m, ...updated } : m));
           setShowUserSettings(false); 
-          alert("Updated! (Note: Frames need DB migration to save permanently)"); 
+          alert("Updated!"); 
       } 
   };
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>, isUser: boolean) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onloadend = () => { if (isUser) setEditUserAvatar(reader.result as string); else setEditServerIcon(reader.result as string); }; reader.readAsDataURL(file); };
@@ -454,10 +462,10 @@ export default function EcoTalkApp() {
                     <div key={member.id} className={`flex items-center justify-between group p-2 mb-1 rounded cursor-pointer transition-colors hover:bg-[var(--bg-tertiary)] relative overflow-hidden`} onClick={() => handleUserClick(member)}>
                         {/* Member Background from Banner */}
                         {member.banner && member.banner !== 'default' && (
-                            <div className={`absolute inset-0 opacity-10 pointer-events-none ${AVAILABLE_BANNERS.find(b=>b.id===member.banner)?.color}`}></div>
+                            <div className={`absolute inset-0 opacity-20 pointer-events-none ${AVAILABLE_BANNERS.find(b=>b.id===member.banner)?.color}`}></div>
                         )}
                         
-                        <div className="flex items-center gap-2 relative z-10">
+                        <div className="flex items-center gap-3 relative z-10">
                             <div className="relative w-8 h-8 flex-shrink-0">
                                 <AvatarWithFrame url={member.avatar} frameId={member.frame} sizeClass="w-full h-full" isOnline={member.status==='online'}/>
                             </div>
