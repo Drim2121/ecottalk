@@ -11,10 +11,8 @@ import {
 import io, { Socket } from "socket.io-client";
 import Peer from "simple-peer";
 
-// ===== CONSTANTS =====
 const SOCKET_URL = "http://5.129.215.82:3001"; 
 
-// ===== SHOP DATA =====
 const AVAILABLE_FRAMES = [
   { id: 'none', name: 'No Frame', price: 0, css: 'border border-white/10' },
   { id: 'gold', name: 'Golden Legend', price: 500, css: 'ring-[3px] ring-yellow-400 shadow-[0_0_10px_rgba(250,204,21,0.5)] border-2 border-yellow-200' },
@@ -35,7 +33,6 @@ const AVAILABLE_BANNERS = [
   { id: 'night', name: 'Midnight', price: 500, color: 'bg-slate-800' },
 ];
 
-// ===== THEMES =====
 const THEME_STYLES = `
   :root[data-theme="minimal"] { --bg-primary: #ffffff; --bg-secondary: #f9fafb; --bg-tertiary: #f3f4f6; --text-primary: #111827; --text-secondary: #6b7280; --accent: #10b981; --border: #e5e7eb; --font-family: 'Segoe UI', sans-serif; --modal-bg: #ffffff; --sidebar-bg: #f3f4f6; }
   :root[data-theme="neon"] { --bg-primary: #0f172a; --bg-secondary: #1e293b; --bg-tertiary: #334155; --text-primary: #f8fafc; --text-secondary: #94a3b8; --accent: #38bdf8; --border: #1e293b; --font-family: 'Courier New', monospace; --modal-bg: #0f172a; --sidebar-bg: #1e293b; }
@@ -55,7 +52,6 @@ let _socket: Socket | null = null;
 function getSocket() { if (!_socket) { _socket = io(SOCKET_URL, { transports: ["websocket"], withCredentials: true }); } return _socket; }
 const peerConfig = { iceServers: [ { urls: "stun:stun.l.google.com:19302" }, { urls: "stun:global.stun.twilio.com:3478" } ] };
 
-// --- AUDIO HELPERS ---
 let globalAudioContext: AudioContext | null = null;
 const getAudioContext = () => { if (!globalAudioContext) { const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext; if (AudioContextClass) globalAudioContext = new AudioContextClass(); } return globalAudioContext; };
 
@@ -66,9 +62,11 @@ const playSoundEffect = (type: 'msg' | 'join' | 'leave' | 'click') => {
   else { const osc = ctx.createOscillator(); const gain = ctx.createGain(); osc.connect(gain); gain.connect(ctx.destination); const now = ctx.currentTime; osc.type = 'sine'; if (type === 'msg') { osc.frequency.setValueAtTime(440, now); osc.frequency.setValueAtTime(554, now + 0.1); gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.4); } else if (type === 'join') { osc.frequency.setValueAtTime(300, now); osc.frequency.linearRampToValueAtTime(600, now + 0.2); gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.3); } else if (type === 'leave') { osc.frequency.setValueAtTime(400, now); osc.frequency.linearRampToValueAtTime(200, now + 0.2); gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.3); } osc.start(now); osc.stop(now + 0.4); }
 };
 
+// === FIX: LOWER THRESHOLD TO 5 ===
 const useStreamAnalyzer = (stream: MediaStream | null) => {
     const [isTalking, setIsTalking] = useState(false);
-    useEffect(() => { if (!stream || stream.getAudioTracks().length === 0) { setIsTalking(false); return; } const ctx = getAudioContext(); if (!ctx) return; let source: MediaStreamAudioSourceNode | null = null; let analyser: AnalyserNode | null = null; let interval: any = null; try { if (ctx.state === "suspended") ctx.resume(); analyser = ctx.createAnalyser(); analyser.fftSize = 256; source = ctx.createMediaStreamSource(stream); source.connect(analyser); const checkVolume = () => { if (!analyser) return; const data = new Uint8Array(analyser.frequencyBinCount); analyser.getByteFrequencyData(data); let sum = 0; for (let i = 0; i < data.length; i++) sum += data[i]; setIsTalking((sum / data.length) > 10); }; interval = setInterval(checkVolume, 100); } catch (e) {} return () => { if (interval) clearInterval(interval); try { source?.disconnect(); analyser?.disconnect(); } catch {} }; }, [stream]);
+    useEffect(() => { if (!stream || stream.getAudioTracks().length === 0) { setIsTalking(false); return; } const ctx = getAudioContext(); if (!ctx) return; let source: MediaStreamAudioSourceNode | null = null; let analyser: AnalyserNode | null = null; let interval: any = null; try { if (ctx.state === "suspended") ctx.resume(); analyser = ctx.createAnalyser(); analyser.fftSize = 256; source = ctx.createMediaStreamSource(stream); source.connect(analyser); const checkVolume = () => { if (!analyser) return; const data = new Uint8Array(analyser.frequencyBinCount); analyser.getByteFrequencyData(data); let sum = 0; for (let i = 0; i < data.length; i++) sum += data[i]; 
+    setIsTalking((sum / data.length) > 5); }; interval = setInterval(checkVolume, 100); } catch (e) {} return () => { if (interval) clearInterval(interval); try { source?.disconnect(); analyser?.disconnect(); } catch {} }; }, [stream]);
     return isTalking;
 };
 
@@ -79,7 +77,6 @@ const useProcessedStream = (rawStream: MediaStream | null, threshold: number, is
     return processedStream;
 };
 
-// --- UNIVERSAL AVATAR COMPONENT ---
 const AvatarWithFrame = ({ url, frameId, sizeClass = "w-10 h-10", isOnline = false, showStatus = true }: { url: string, frameId?: string, sizeClass?: string, isOnline?: boolean, showStatus?: boolean }) => {
     const frame = AVAILABLE_FRAMES.find(f => f.id === (frameId || 'none')) || AVAILABLE_FRAMES[0];
     return (
@@ -93,29 +90,44 @@ const AvatarWithFrame = ({ url, frameId, sizeClass = "w-10 h-10", isOnline = fal
     );
 };
 
-// --- VIDEO COMPONENT ---
+// === FIX: USER MEDIA COMPONENT WITH GREEN RING ===
 const UserMediaComponent = React.memo(({ stream, isLocal, userId, userAvatar, username, outputDeviceId, isScreenShare, globalDeaf, remoteMuted, miniMode, frameId }: { stream: MediaStream | null; isLocal: boolean; userId: string; userAvatar?: string; username?: string; outputDeviceId?: string; isScreenShare?: boolean; globalDeaf?: boolean; remoteMuted?: boolean; miniMode?: boolean; frameId?: string }) => {
-  const videoRef = useRef<HTMLVideoElement>(null); const containerRef = useRef<HTMLDivElement>(null); const isSpeaking = useStreamAnalyzer(stream); const [hasVideo, setHasVideo] = useState(false); const [isAudioEnabled, setIsAudioEnabled] = useState(true); const [isFullscreen, setIsFullscreen] = useState(false); const [volume, setVolume] = useState(1);
+  const videoRef = useRef<HTMLVideoElement>(null); 
+  const containerRef = useRef<HTMLDivElement>(null); 
+  const isSpeaking = useStreamAnalyzer(stream); 
+  const [hasVideo, setHasVideo] = useState(false); 
+  const [isAudioEnabled, setIsAudioEnabled] = useState(true); 
+  const [isFullscreen, setIsFullscreen] = useState(false); 
+  const [volume, setVolume] = useState(1);
+
   useEffect(() => { if(!stream) { setHasVideo(false); return; } const checkStatus = () => { setHasVideo(stream.getVideoTracks().length > 0 && stream.getVideoTracks()[0].enabled); const audioTrack = stream.getAudioTracks()[0]; setIsAudioEnabled(audioTrack ? audioTrack.enabled : false); }; const statusInterval = setInterval(checkStatus, 500); checkStatus(); return () => clearInterval(statusInterval); }, [stream]);
   useEffect(() => { const handleFsChange = () => { setIsFullscreen(!!document.fullscreenElement); }; document.addEventListener("fullscreenchange", handleFsChange); return () => document.removeEventListener("fullscreenchange", handleFsChange); }, []);
-  useEffect(() => { if(videoRef.current) videoRef.current.volume = volume; }, [volume]); useEffect(() => { if (videoRef.current && stream && videoRef.current.srcObject !== stream) videoRef.current.srcObject = stream; }, [stream]); useEffect(() => { if (isLocal || !videoRef.current || !outputDeviceId) return; const anyVideo = videoRef.current as any; if (typeof anyVideo.setSinkId === "function") anyVideo.setSinkId(outputDeviceId).catch(() => {}); }, [outputDeviceId, isLocal]);
+  useEffect(() => { if(videoRef.current) videoRef.current.volume = volume; }, [volume]); 
+  useEffect(() => { if (videoRef.current && stream && videoRef.current.srcObject !== stream) videoRef.current.srcObject = stream; }, [stream]); 
+  useEffect(() => { if (isLocal || !videoRef.current || !outputDeviceId) return; const anyVideo = videoRef.current as any; if (typeof anyVideo.setSinkId === "function") anyVideo.setSinkId(outputDeviceId).catch(() => {}); }, [outputDeviceId, isLocal]);
+  
   const toggleFullscreen = () => { if (!containerRef.current) return; if (!document.fullscreenElement) { containerRef.current.requestFullscreen().catch(err => console.log(err)); } else { document.exitFullscreen(); } };
   const objectFitClass = (isScreenShare || isFullscreen) ? 'object-contain' : 'object-cover';
   const containerClass = miniMode ? 'relative bg-black rounded-lg overflow-hidden border border-white/20 w-full h-full' : (isFullscreen ? 'fixed inset-0 z-50 bg-black rounded-none flex flex-col items-center justify-center' : 'flex flex-col items-center justify-center p-2 h-full w-full relative bg-black/40 rounded-xl overflow-hidden border border-white/10 group transition-all');
   const shouldMuteVideoElement = isLocal || (globalDeaf === true);
   const avatarSize = miniMode ? "w-8 h-8" : "w-24 h-24";
 
+  // ADDED RING CLASS
+  const speakingClass = isSpeaking && !remoteMuted ? "ring-4 ring-green-500 scale-110 shadow-[0_0_15px_rgba(34,197,94,0.6)]" : "";
+
   return (
     <div ref={containerRef} className={containerClass}>
       <video ref={videoRef} autoPlay playsInline muted={shouldMuteVideoElement} className={`absolute inset-0 w-full h-full ${objectFitClass} transition-all duration-300 ${hasVideo ? 'opacity-100' : 'opacity-0'} ${isLocal && !isScreenShare ? 'scale-x-[-1]' : ''}`} />
+      
       {!hasVideo && (
         <div className="z-10 flex flex-col items-center">
-            <div className={`relative ${avatarSize} rounded-full p-2 transition-all duration-150 ${isSpeaking && !remoteMuted ? "scale-110" : ""}`}>
+            <div className={`relative ${avatarSize} rounded-full transition-all duration-150 ${speakingClass}`}>
                 <AvatarWithFrame url={userAvatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userId}`} frameId={frameId} sizeClass="w-full h-full" showStatus={false}/>
             </div>
         </div>
       )}
-      {hasVideo && isSpeaking && !remoteMuted && (<div className="absolute inset-0 border-4 border-green-500 rounded-xl z-20 pointer-events-none opacity-50"></div>)}
+
+      {hasVideo && isSpeaking && !remoteMuted && (<div className="absolute inset-0 border-4 border-green-500 rounded-xl z-20 pointer-events-none opacity-80 shadow-[inset_0_0_20px_rgba(34,197,94,0.5)]"></div>)}
       {remoteMuted && (<div className={`absolute top-2 right-2 bg-red-600 ${miniMode ? 'p-1' : 'p-2'} rounded-full shadow-lg z-20`}><MicOff size={miniMode ? 10 : 16} className="text-white" /></div>)}
       {!isLocal && !miniMode && (<div className="absolute bottom-12 left-1/2 -translate-x-1/2 w-3/4 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 px-3 py-1 rounded-full flex items-center gap-2 z-30"><Volume size={14} className="text-gray-300"/><input type="range" min="0" max="1" step="0.05" value={volume} onChange={e=>setVolume(Number(e.target.value))} className="w-full"/></div>)}
       {!miniMode && <button onClick={toggleFullscreen} className="absolute bottom-10 right-4 p-2 bg-black/50 hover:bg-black/80 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity z-20">{isFullscreen ? <Minimize size={20}/> : <Maximize size={20}/>}</button>}
@@ -370,7 +382,6 @@ export default function EcoTalkApp() {
   const deleteMessage = async (msgId: number) => { if(!confirm("Delete?")) return; await fetch(`${SOCKET_URL}/api/messages/${msgId}`, { method: 'DELETE', headers: { 'Authorization': token! } }); };
   const toggleReaction = async (msgId: number, emoji: string) => { await fetch(`${SOCKET_URL}/api/messages/${msgId}/react`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': token! }, body: JSON.stringify({ emoji }) }); };
   
-  // === NEW: CLICK HANDLER FOR VIEWING PROFILES ===
   const handleUserClick = (user: any) => {
       if (user.id === currentUser?.id) {
           openUserProfile();
@@ -426,7 +437,6 @@ export default function EcoTalkApp() {
                 ))}
               </>
             ) : (
-               // === DM LIST WITH FRAMES ===
                myFriends.map(f => (
                    <div key={f.id} onClick={()=>selectDM(f)} className={`flex items-center p-2 rounded cursor-pointer ${activeDM?.id===f.id?'bg-[var(--bg-tertiary)]':''}`}>
                        <div className="relative w-8 h-8 flex-shrink-0 mr-2">
@@ -492,11 +502,9 @@ export default function EcoTalkApp() {
                 <h3 className="text-xs font-bold text-[var(--text-secondary)] mb-2">MEMBERS — {currentServerMembers.length}</h3>
                 {currentServerMembers.map(member => (
                     <div key={member.id} className={`flex items-center justify-between group p-2 mb-1 rounded cursor-pointer transition-colors hover:bg-[var(--bg-tertiary)] relative overflow-hidden`} onClick={() => handleUserClick(member)}>
-                        {/* Member Background from Banner - MADE VISIBLE (opacity-40) */}
                         {member.banner && member.banner !== 'default' && (
                             <div className={`absolute inset-0 opacity-40 pointer-events-none z-0 ${AVAILABLE_BANNERS.find(b=>b.id===member.banner)?.color}`}></div>
                         )}
-                        
                         <div className="flex items-center gap-3 relative z-10">
                             <div className="relative w-8 h-8 flex-shrink-0">
                                 <AvatarWithFrame url={member.avatar} frameId={member.frame} sizeClass="w-full h-full" isOnline={member.status==='online'}/>
@@ -512,7 +520,6 @@ export default function EcoTalkApp() {
         {showServerSettings && <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50"><div className="bg-white p-6 rounded-xl w-96 shadow-2xl"><div className="flex items-center justify-between mb-4"><h3 className="font-bold text-xl text-gray-900">Server Settings</h3><button className="text-sm text-gray-500" onClick={()=>setShowServerSettings(false)}>Close</button></div><label className="text-xs font-bold text-gray-500">ICON</label><div className="flex items-center gap-4 mb-4"><div className="w-16 h-16 rounded-xl bg-gray-200 overflow-hidden flex items-center justify-center">{editServerIcon ? <img src={editServerIcon} className="w-full h-full object-cover"/> : <span className="text-2xl font-bold text-gray-400">{editServerName?.[0]}</span>}</div><input type="file" ref={serverIconInputRef} hidden accept="image/*" onChange={(e)=>handleAvatarUpload(e, false)}/><button onClick={()=>serverIconInputRef.current?.click()} className="text-sm text-green-600 hover:underline">Change</button></div><label className="text-xs font-bold text-gray-500">NAME</label><input className="w-full border p-2 rounded mb-4" value={editServerName} onChange={e=>setEditServerName(e.target.value)}/><label className="text-xs font-bold text-gray-500">DESCRIPTION</label><textarea className="w-full border p-2 rounded mb-6 h-20 resize-none" value={editServerDesc} onChange={e=>setEditServerDesc(e.target.value)}/><div className="flex justify-between gap-2"><button onClick={openServerSettings} className="text-sm text-gray-500 hover:underline">Refresh</button><div className="flex gap-2"><button onClick={deleteServer} className="px-4 py-2 text-white bg-red-600 rounded">Delete</button><button onClick={updateServer} className="px-4 py-2 text-white bg-green-600 rounded">Save</button></div></div></div></div>}
         {editingChannel && <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50"><div className="bg-white p-6 rounded-xl w-80 shadow-2xl"><h3 className="font-bold text-xl mb-4 text-gray-900">Edit Channel</h3><input className="w-full border p-2 rounded mb-4" value={newChannelName} onChange={e=>setNewChannelName(e.target.value)}/><div className="flex justify-between"><button onClick={deleteChannel} className="text-red-500 text-sm hover:underline flex items-center"><Trash2 size={14} className="mr-1"/> Delete</button><div className="flex gap-2"><button onClick={()=>setEditingChannel(null)}>Cancel</button><button onClick={updateChannel} className="bg-green-600 text-white px-4 py-2 rounded">Save</button></div></div></div></div>}
         
-        {/* ===== VIEW OTHER USER PROFILE MODAL ===== */}
         {viewingUserProfile && (
             <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-[70] backdrop-blur-sm" onClick={() => setViewingUserProfile(null)}>
                 <div className="bg-[var(--modal-bg)] w-[350px] rounded-xl shadow-2xl overflow-hidden border border-[var(--border)] animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
@@ -542,7 +549,6 @@ export default function EcoTalkApp() {
             </div>
         )}
 
-        {/* ===== SETTINGS MODAL ===== */}
         {showUserSettings && (
           <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-[60] backdrop-blur-sm">
             <div className="bg-[var(--modal-bg)] w-[800px] h-[550px] rounded-xl shadow-2xl flex overflow-hidden border border-[var(--border)] animate-in zoom-in-95 duration-200">
@@ -692,11 +698,6 @@ export default function EcoTalkApp() {
             </div>
           </div>
         )}
-        
-        {showCreateServer && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><div className="bg-white p-6 rounded-xl"><input className="border p-2 w-full mb-4" placeholder="Name" value={newServerName} onChange={e=>setNewServerName(e.target.value)}/><div className="flex justify-end gap-2"><button onClick={()=>setShowCreateServer(false)}>Cancel</button><button onClick={createServer} className="bg-green-600 text-white px-4 py-2 rounded">Create</button></div></div></div>}
-        {showCreateChannel && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><div className="bg-white p-6 rounded-xl"><input className="border p-2 w-full mb-4" placeholder="Name" value={newChannelName} onChange={e=>setNewChannelName(e.target.value)}/><div className="flex justify-end gap-2"><button onClick={()=>setShowCreateChannel(false)}>Cancel</button><button onClick={createChannel} className="bg-green-600 text-white px-4 py-2 rounded">Create</button></div></div></div>}
-        {showAddFriend && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><div className="bg-white p-6 rounded-xl"><input className="border p-2 w-full mb-4" placeholder="Username" value={friendName} onChange={e=>setFriendName(e.target.value)}/><div className="flex justify-end gap-2"><button onClick={()=>setShowAddFriend(false)}>Cancel</button><button onClick={addFriend} className="bg-green-600 text-white px-4 py-2 rounded">Send</button></div></div></div>}
-        {showInvite && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><div className="bg-white p-6 rounded-xl"><input className="border p-2 w-full mb-4" placeholder="Username" value={inviteUserName} onChange={e=>setInviteUserName(e.target.value)}/><div className="flex justify-end gap-2"><button onClick={()=>setShowInvite(false)}>Cancel</button><button onClick={inviteUser} className="bg-green-600 text-white px-4 py-2 rounded">Invite</button></div></div></div>}
         {viewingImage && (<div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setViewingImage(null)}><button className="absolute top-4 right-4 text-white/50 hover:text-white p-2 rounded-full hover:bg-white/10 transition-all" onClick={() => setViewingImage(null)}><X size={32}/></button><img src={viewingImage} className="max-w-full max-h-full rounded-md shadow-2xl object-contain cursor-zoom-out" onClick={(e) => e.stopPropagation()} /></div>)}
       </div>
     </div>
